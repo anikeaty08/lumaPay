@@ -17,7 +17,6 @@ export const CreateGiftCard: React.FC = () => {
     const [fundingStatus, setFundingStatus] = useState<string>('');
     const [giftCode, setGiftCode] = useState<string>('');
     const [copied, setCopied] = useState(false);
-    const [historySaved, setHistorySaved] = useState(false);
     const labelBytes = getUtf8ByteLength(label.trim());
     const labelTooLong = labelBytes > GIFT_CARD_RECORD_LABEL_MAX_BYTES;
 
@@ -46,15 +45,20 @@ export const CreateGiftCard: React.FC = () => {
             setFundingStatus('Generating private gift-card secrets…');
             setGiftCode('');
             setCopied(false);
-            setHistorySaved(false);
 
             const assetsToFund = [
                 { token: 'NIGHT', amount: BigInt(Math.round(midnightAmt * 1_000_000)) }
             ].filter(a => a.amount > 0);
             setFundingStatus(`Creating ${assetsToFund.length} private asset ${assetsToFund.length === 1 ? 'card' : 'cards'} on Midnight…`);
             const result = await createGiftCardsOnChain(api, assetsToFund, label.trim(), BigInt(Math.floor(Date.now() / 1_000) + 31_536_000));
-            result.recovery.forEach((entry) => localStorage.setItem(`lumapay:gift-card:${entry.giftCardId}`, JSON.stringify(entry)));
-            setHistorySaved(true);
+            // The mint already succeeded on-chain by this point (money has moved).
+            // This local cache write is a convenience only — never let it fail the
+            // flow and hide a successful gift code from the buyer.
+            try {
+                result.recovery.forEach((entry) => localStorage.setItem(`lumapay:gift-card:${entry.giftCardId}`, JSON.stringify(entry)));
+            } catch (cacheError) {
+                console.error('Failed to cache gift-card recovery data locally', cacheError);
+            }
             setGiftCode(result.giftCode);
             setStep('SUCCESS');
             toast.success('Gift Card created successfully!');
@@ -78,7 +82,6 @@ export const CreateGiftCard: React.FC = () => {
         setAmounts({ NIGHT: '' });
         setLabel('');
         setGiftCode('');
-        setHistorySaved(false);
         setStep('INPUT');
     };
 
@@ -194,10 +197,8 @@ export const CreateGiftCard: React.FC = () => {
                         <div>
                             <h3 className="text-lg font-semibold text-white mb-1">Gift Card Ready</h3>
                             <p className="text-sm text-white/40">Share this code with the recipient — they can redeem it instantly.</p>
-                            <p className={`mt-2 text-xs ${historySaved ? 'text-green-300/80' : 'text-amber-300/80'}`}>
-                                {historySaved
-                                    ? 'Saved to your private on-chain gift-card history.'
-                                    : 'On-chain history backup failed for this card, so keep this code safe.'}
+                            <p className="mt-2 text-xs text-green-300/80">
+                                Minted on Midnight — you'll find it under Created Cards. A recovery copy was also cached in this browser, so keep the code safe in case you clear site data.
                             </p>
                         </div>
 

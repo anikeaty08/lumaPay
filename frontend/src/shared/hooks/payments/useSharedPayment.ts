@@ -7,6 +7,7 @@ import type { TokenCode } from '../../types/tokens';
 import { API_URL } from '../../../midnight/config';
 import { payInvoiceOnChain, type InvoicePaymentOpening } from '../../../midnight/contract';
 import { contributeOnChain, type CampaignPaymentOpening } from '../../../midnight/campaign';
+import { decodeGiftCode, redeemGiftCardsOnChain } from '../../../midnight/gift-card';
 
 type PaymentOpening = ({
     kind: 'invoice';
@@ -80,7 +81,7 @@ export const useSharedPayment = () => {
     const [receiptSearchFailed, setReceiptSearchFailed] = useState(false);
     const [statusLog, setStatusLog] = useState<string[]>([]);
     const [quote] = useState<PaymentQuote | null>(null);
-    const [giftCardRedeemOption] = useState<GiftCardRedeemOption | null>(null);
+    const [giftCardRedeemOption, setGiftCardRedeemOption] = useState<GiftCardRedeemOption | null>(null);
 
     const appendStatus = useCallback((message: string) => {
         setStatus(message);
@@ -182,6 +183,76 @@ export const useSharedPayment = () => {
         setError('This payment method is being migrated to the LumaPay Midnight contract adapter. Use the connected wallet for this payment.');
     }, []);
 
+    // There is no on-chain circuit that settles an invoice directly from a
+    // gift card's escrowed coin (only payInvoice / contribution circuits
+    // exist). So "pay with gift card" composes two things that do work:
+    // redeem the card's balance into the connected wallet, then let the
+    // buyer complete the normal wallet payment via payInvoice above.
+    const payWithGiftCard = useCallback(async (giftCode: string, ..._rest: unknown[]) => {
+        if (!api || !publicKey) {
+            setError('Connect a Midnight wallet before paying with a gift card.');
+            return;
+        }
+        setLoading(true);
+        setError(null);
+        try {
+            appendStatus('Checking gift card balance…');
+            const cards = decodeGiftCode(giftCode.trim());
+            const states = await Promise.all(cards.map(async (card) => {
+                const response = await fetch(`${API_URL}/api/v1/chain/gift-cards/${card.giftCardId}`);
+                return response.ok ? response.json() : null;
+            }));
+            const openCards = cards.filter((_card, index) => states[index]?.status === 'OPEN');
+            if (openCards.length === 0) throw new Error('This gift card is already redeemed, expired, or unavailable.');
+            const availableAmount = openCards.reduce((total, card) => (
+                card.token === 'NIGHT' ? total + Number(BigInt(card.amount)) / 1_000_000 : total
+            ), 0);
+            setGiftCardRedeemOption({
+                giftCode: giftCode.trim(),
+                availableAmount,
+                redeemMicros: Math.round(availableAmount * 1_000_000),
+                tokenProgram: 'NIGHT',
+                tokenLabel: 'NIGHT',
+                isNIGHT: true,
+            });
+            appendStatus(`This gift card holds ${availableAmount} NIGHT. Redeem it to your wallet, then pay to complete the invoice.`);
+        } catch (cause) {
+            const message = cause instanceof Error ? cause.message : 'Could not read that gift card.';
+            setError(message);
+            appendStatus(`Gift card check failed: ${message}`);
+        } finally {
+            setLoading(false);
+        }
+    }, [api, appendStatus, publicKey]);
+
+    const redeemGiftCardBalance = useCallback(async () => {
+        if (!api || !publicKey || !giftCardRedeemOption) {
+            setError('Connect a Midnight wallet before redeeming a gift card.');
+            return;
+        }
+        setLoading(true);
+        setError(null);
+        try {
+            appendStatus('Redeeming gift card to your connected wallet…');
+            const cards = decodeGiftCode(giftCardRedeemOption.giftCode);
+            const states = await Promise.all(cards.map(async (card) => {
+                const response = await fetch(`${API_URL}/api/v1/chain/gift-cards/${card.giftCardId}`);
+                return response.ok ? response.json() : null;
+            }));
+            const openCards = cards.filter((_card, index) => states[index]?.status === 'OPEN');
+            if (openCards.length === 0) throw new Error('This gift card is already redeemed, expired, or unavailable.');
+            await redeemGiftCardsOnChain(api, openCards);
+            setGiftCardRedeemOption(null);
+            appendStatus('Gift card redeemed to your wallet. Pay now to complete the invoice with your new balance.');
+        } catch (cause) {
+            const message = cause instanceof Error ? cause.message : 'Gift card redemption failed.';
+            setError(message);
+            appendStatus(`Redemption failed: ${message}`);
+        } finally {
+            setLoading(false);
+        }
+    }, [api, appendStatus, giftCardRedeemOption, publicKey]);
+
     const handleConnect = useCallback(async () => {
         if (publicKey) setStep('PAY');
     }, [publicKey]);
@@ -205,6 +276,6 @@ export const useSharedPayment = () => {
         clearStatusLog: () => setStatusLog([]), resetPaymentFeedback, publicKey,
         payInvoice, quote, quoteTimeRemaining: 0, checkOracleQuote, handleConnect,
         convertPublicToPrivate,
-        payWithCard: unsupported, payWithGiftCard: unsupported, redeemGiftCardBalance: unsupported
+        payWithCard: unsupported, payWithGiftCard, redeemGiftCardBalance
     };
 };

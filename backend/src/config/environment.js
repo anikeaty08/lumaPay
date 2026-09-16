@@ -22,8 +22,12 @@ const NETWORKS = Object.freeze({
     preprod: Object.freeze({
         networkId: 'preprod',
         node: 'wss://rpc.preprod.midnight.network',
-        indexer: 'https://api-preprod.1am.xyz/api/v4/graphql',
-        indexerWS: 'wss://api-preprod.1am.xyz/api/v4/graphql/ws'
+        // The official Midnight-operated indexer. api-preprod.1am.xyz (1AM's
+        // ProofStation infra) now gates its indexer behind X-API-Key/wallet-
+        // challenge auth that this backend never implemented, so every chain
+        // read 401'd. This one is publicly queryable, no auth required.
+        indexer: 'https://indexer.preprod.midnight.network/api/v4/graphql',
+        indexerWS: 'wss://indexer.preprod.midnight.network/api/v4/graphql/ws'
     }),
     mainnet: Object.freeze({
         networkId: 'mainnet',

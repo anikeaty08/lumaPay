@@ -35,13 +35,13 @@ export const GiftCardRedeemPrompt: React.FC<GiftCardRedeemPromptProps> = ({
                         </svg>
                     </div>
                     <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-500/80">
-                        Insufficient Balance
+                        One More Step
                     </p>
                 </div>
 
                 <p className="text-sm text-gray-300 leading-relaxed">
-                    This gift card only contains <span className="font-bold text-white whitespace-nowrap">{availableAmount.toFixed(2)} {tokenLabel}</span>. 
-                    You can redeem this balance to your wallet first to complete the payment.
+                    There's no direct gift-card payment on-chain yet, so this card's <span className="font-bold text-white whitespace-nowrap">{availableAmount.toFixed(2)} {tokenLabel}</span> balance
+                    needs to be redeemed to your connected wallet first, then you can pay normally.
                 </p>
 
                 <div className="mt-4 flex flex-col gap-3">
@@ -50,7 +50,7 @@ export const GiftCardRedeemPrompt: React.FC<GiftCardRedeemPromptProps> = ({
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                         <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wider">
-                            LumaPay covers the redeem gas fee
+                            Your wallet pays the redeem network fee
                         </p>
                     </div>
 

@@ -5,8 +5,8 @@ The LumaPay Preprod deployment is in progress. Five modules are deployed and ind
 ## Services
 
 - Node: `wss://rpc.preprod.midnight.network`
-- Indexer HTTP: `https://api-preprod.1am.xyz/api/v4/graphql`
-- Indexer WebSocket: `wss://api-preprod.1am.xyz/api/v4/graphql/ws`
+- Indexer HTTP: `https://indexer.preprod.midnight.network/api/v4/graphql`
+- Indexer WebSocket: `wss://indexer.preprod.midnight.network/api/v4/graphql/ws`
 - Node WebSocket: `wss://rpc.preprod.midnight.network`
 - Proof server: local `http://127.0.0.1:6300`
 

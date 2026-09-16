@@ -19,9 +19,9 @@ services:
       - key: MIDNIGHT_NODE_URL
         value: wss://rpc.preprod.midnight.network
       - key: MIDNIGHT_INDEXER_URL
-        value: https://api-preprod.1am.xyz/api/v4/graphql
+        value: https://indexer.preprod.midnight.network/api/v4/graphql
       - key: MIDNIGHT_INDEXER_WS_URL
-        value: wss://api-preprod.1am.xyz/api/v4/graphql/ws
+        value: wss://indexer.preprod.midnight.network/api/v4/graphql/ws
       - key: LUMAPAY_INVOICE_CORE_CONTRACT_ADDRESS
         value: 252404b3ad5a4f02071bb59d3631a86419cf6c6d1b995ccebe78399fe44000b2
       - key: LUMAPAY_CAMPAIGNS_CONTRACT_ADDRESS

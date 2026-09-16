@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { API_URL } from '../../../midnight/config';
 import { payInvoiceOnChain } from '../../../midnight/contract';
+import { decodeGiftCode, redeemGiftCardsOnChain } from '../../../midnight/gift-card';
 import type { CheckoutSession } from '../../types/checkout';
 import { useLeaveGuard } from '../app/LeaveGuardProvider';
 import { useWalletErrorHandler } from '../wallet/WalletErrorBoundary';
@@ -39,7 +40,7 @@ export const useCheckoutPayment = (session: CheckoutSession | null) => {
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
     const [step, setStep] = useState<'PAY' | 'CONVERT'>('PAY');
-    const [giftCardRedeemOption] = useState<GiftCardRedeemOption | null>(null);
+    const [giftCardRedeemOption, setGiftCardRedeemOption] = useState<GiftCardRedeemOption | null>(null);
     const [quote] = useState<Quote | null>(null);
     const [quoteTimeRemaining] = useState(0);
 
@@ -169,9 +170,71 @@ export const useCheckoutPayment = (session: CheckoutSession | null) => {
     }, []);
 
     const payWithCard = useCallback(async (..._args: unknown[]) => rejectFeature('LumaPay Card checkout'), [rejectFeature]);
-    const payWithGiftCard = useCallback(async (..._args: unknown[]) => rejectFeature('Gift-card checkout'), [rejectFeature]);
+
+    // There is no on-chain circuit that settles an invoice directly from a
+    // gift card's escrowed coin (only payInvoice / payInvoiceWithQuote exist).
+    // So "pay with gift card" is a two-step composition of two things that do
+    // work: redeem the card's balance into the connected wallet, then let the
+    // buyer complete the normal wallet payment.
+    const payWithGiftCard = useCallback(async (giftCode: string, ..._rest: unknown[]) => {
+        if (!api || !publicKey) {
+            setError('Connect a Midnight wallet before paying with a gift card.');
+            return;
+        }
+        setLoading(true);
+        setError(null);
+        try {
+            report('Checking gift card balance…');
+            const cards = decodeGiftCode(giftCode.trim());
+            const states = await Promise.all(cards.map(async (card) => {
+                const response = await fetch(`${API_URL}/api/v1/chain/gift-cards/${card.giftCardId}`);
+                return response.ok ? response.json() : null;
+            }));
+            const openCards = cards.filter((_card, index) => states[index]?.status === 'OPEN');
+            if (openCards.length === 0) throw new Error('This gift card is already redeemed, expired, or unavailable.');
+            const availableAmount = openCards.reduce((total, card) => (
+                card.token === 'NIGHT' ? total + Number(BigInt(card.amount)) / 1_000_000 : total
+            ), 0);
+            setGiftCardRedeemOption({ giftCode: giftCode.trim(), availableAmount, tokenLabel: 'NIGHT' });
+            report(`This gift card holds ${availableAmount} NIGHT. Redeem it to your wallet, then hit Pay to complete the invoice.`);
+        } catch (cause) {
+            const message = cause instanceof Error ? cause.message : 'Could not read that gift card.';
+            setError(message);
+            report(`Gift card check failed: ${message}`);
+        } finally {
+            setLoading(false);
+        }
+    }, [api, publicKey, report]);
+
     const convertPublicToPrivate = useCallback(async (_amount?: number) => rejectFeature('Public-to-shielded conversion'), [rejectFeature]);
-    const redeemGiftCardBalance = useCallback(async () => rejectFeature('Gift-card wallet redemption'), [rejectFeature]);
+
+    const redeemGiftCardBalance = useCallback(async () => {
+        if (!api || !publicKey || !giftCardRedeemOption) {
+            setError('Connect a Midnight wallet before redeeming a gift card.');
+            return;
+        }
+        setLoading(true);
+        setError(null);
+        try {
+            report('Redeeming gift card to your connected wallet…');
+            const cards = decodeGiftCode(giftCardRedeemOption.giftCode);
+            const states = await Promise.all(cards.map(async (card) => {
+                const response = await fetch(`${API_URL}/api/v1/chain/gift-cards/${card.giftCardId}`);
+                return response.ok ? response.json() : null;
+            }));
+            const openCards = cards.filter((_card, index) => states[index]?.status === 'OPEN');
+            if (openCards.length === 0) throw new Error('This gift card is already redeemed, expired, or unavailable.');
+            await redeemGiftCardsOnChain(api, openCards);
+            setGiftCardRedeemOption(null);
+            report('Gift card redeemed to your wallet. Hit Pay to complete the invoice with your new balance.');
+        } catch (cause) {
+            const message = cause instanceof Error ? cause.message : 'Gift card redemption failed.';
+            setError(message);
+            report(`Redemption failed: ${message}`);
+        } finally {
+            setLoading(false);
+        }
+    }, [api, publicKey, giftCardRedeemOption, report]);
     const checkOracleQuote = useCallback(async (_from: string, _to: string, _amount: number) => {
         setError('Cross-token quotes are not enabled for this checkout session.');
         return null;
