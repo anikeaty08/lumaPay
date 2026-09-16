@@ -1,0 +1,38 @@
+{
+  "name": "@lumapay/backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LumaPay Midnight indexer, reconciliation, and checkout API",
+  "type": "module",
+  "main": "index.js",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "prepare:contract": "node scripts/copy-contract-artifacts.js",
+    "start": "npm run prepare:contract && node index.js",
+    "dev": "node --watch index.js",
+    "test": "npm run prepare:contract && node --test tests/*.test.js",
+    "check:legacy": "node scripts/check-no-legacy.js",
+    "verify": "npm run check:legacy && npm test",
+    "audit:prod": "npm audit --omit=dev"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/ledger-v8": "^8.1.0",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-network-id": "4.1.1",
+    "@midnight-ntwrk/midnight-js-protocol": "4.1.1",
+    "@midnight-ntwrk/wallet-sdk-address-format": "^3.1.0",
+    "@supabase/supabase-js": "2.57.4",
+    "cors": "2.8.5",
+    "dotenv": "17.2.2",
+    "express": "4.21.2",
+    "ws": "8.18.3"
+  },
+  "devDependencies": {
+    "supertest": "7.1.4"
+  },
+  "overrides": {
+    "@midnight-ntwrk/onchain-runtime-v3": "3.0.0"
+  }
+}

@@ -1,0 +1,1232 @@
+pragma language_version 0.23;
+
+import CompactStandardLibrary;
+
+// LumaPay's public ledger deliberately contains commitments and lifecycle facts,
+// never invoice openings, payment identities, or claim secrets.
+export enum InvoiceStatus {
+    OPEN,
+    SETTLED,
+    CANCELLED,
+    EXPIRED
+}
+
+export enum CampaignStatus {
+    OPEN,
+    CANCELLED,
+    EXPIRED
+}
+
+export enum GiftCardStatus {
+    OPEN,
+    REDEEMED,
+    RECLAIMED
+}
+
+export struct InvoicePublicState {
+    commitmentVersion: Uint<16>;
+    commitment: Bytes<32>;
+    merchantAuthorization: Bytes<32>;
+    expiry: Uint<64>;
+    status: InvoiceStatus;
+    settlementNullifier: Bytes<32>;
+    escrowCoinCommitment: Bytes<32>;
+    receiptCommitment: Bytes<32>;
+    claimed: Boolean;
+}
+
+export struct CampaignPublicState {
+    commitmentVersion: Uint<16>;
+    commitment: Bytes<32>;
+    merchantAuthorization: Bytes<32>;
+    expiry: Uint<64>;
+    status: CampaignStatus;
+    contributionCount: Uint<64>;
+}
+
+export struct ContributionPublicState {
+    campaignId: Bytes<32>;
+    nullifier: Bytes<32>;
+    escrowCoinCommitment: Bytes<32>;
+    receiptCommitment: Bytes<32>;
+    claimed: Boolean;
+}
+
+export struct GiftCardPublicState {
+    commitmentVersion: Uint<16>;
+    commitment: Bytes<32>;
+    issuerAuthorization: Bytes<32>;
+    expiry: Uint<64>;
+    escrowCoinCommitment: Bytes<32>;
+    redemptionNullifier: Bytes<32>;
+    status: GiftCardStatus;
+}
+
+export struct QuotePublicState {
+    commitmentVersion: Uint<16>;
+    commitment: Bytes<32>;
+    providerId: Bytes<32>;
+    expiry: Uint<64>;
+    consumed: Boolean;
+}
+
+export struct BackupAnchorPublicState {
+    formatVersion: Uint<16>;
+    authorization: Bytes<32>;
+    encryptedBlobDigest: Bytes<32>;
+}
+
+export ledger invoiceIds: Set<Bytes<32>>;
+export ledger invoices: Map<Bytes<32>, InvoicePublicState>;
+export ledger paymentNullifiers: Set<Bytes<32>>;
+export ledger claimNullifiers: Set<Bytes<32>>;
+
+export ledger campaignIds: Set<Bytes<32>>;
+export ledger campaigns: Map<Bytes<32>, CampaignPublicState>;
+export ledger contributionIds: Set<Bytes<32>>;
+export ledger contributions: Map<Bytes<32>, ContributionPublicState>;
+export ledger contributionNullifiers: Set<Bytes<32>>;
+
+export ledger giftCardIds: Set<Bytes<32>>;
+export ledger giftCards: Map<Bytes<32>, GiftCardPublicState>;
+export ledger giftCardNullifiers: Set<Bytes<32>>;
+
+export ledger quoteIds: Set<Bytes<32>>;
+export ledger quotes: Map<Bytes<32>, QuotePublicState>;
+export ledger quoteProviderIds: Set<Bytes<32>>;
+export ledger quoteProviderAuthorizations: Map<Bytes<32>, Bytes<32>>;
+
+export ledger backupOwnerIds: Set<Bytes<32>>;
+export ledger backupAnchors: Map<Bytes<32>, BackupAnchorPublicState>;
+
+export ledger registryAdminAuthorization: Bytes<32>;
+
+constructor(registryAdminAuthorizationCommitment: Bytes<32>) {
+    assert(
+        registryAdminAuthorizationCommitment != default<Bytes<32>>,
+        "registry admin authorization is required"
+    );
+    registryAdminAuthorization = disclose(registryAdminAuthorizationCommitment);
+}
+
+export pure circuit deriveMerchantAuthorization(merchantClaimSecret: Bytes<32>): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:merchant-auth:v1"),
+        merchantClaimSecret
+    ]);
+}
+
+export pure circuit deriveRegistryAdminAuthorization(adminSecret: Bytes<32>): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:registry-admin:v1"),
+        adminSecret
+    ]);
+}
+
+export pure circuit deriveQuoteProviderAuthorization(
+    providerId: Bytes<32>,
+    providerSecret: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:quote-provider:v1"),
+        providerId,
+        providerSecret
+    ]);
+}
+
+export pure circuit deriveBackupAuthorization(
+    ownerId: Bytes<32>,
+    backupSecret: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:backup-auth:v1"),
+        ownerId,
+        backupSecret
+    ]);
+}
+
+export pure circuit deriveInvoiceCommitment(
+    invoiceId: Bytes<32>,
+    merchantPrivateIdentity: Bytes<32>,
+    amount: Uint<128>,
+    tokenId: Bytes<32>,
+    invoiceNonce: Bytes<32>,
+    randomness: Bytes<32>,
+    expiry: Uint<64>
+): Bytes<32> {
+    return persistentHash<[
+        Bytes<32>, Uint<16>, Bytes<32>, Bytes<32>, Uint<128>,
+        Bytes<32>, Bytes<32>, Bytes<32>, Uint<64>
+    ]>([
+        pad(32, "lumapay:invoice-commitment:v1"),
+        1,
+        invoiceId,
+        merchantPrivateIdentity,
+        amount,
+        tokenId,
+        invoiceNonce,
+        randomness,
+        expiry
+    ]);
+}
+
+export pure circuit derivePaymentNullifier(
+    invoiceId: Bytes<32>,
+    paymentSecret: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:payment-nullifier:v1"),
+        invoiceId,
+        paymentSecret
+    ]);
+}
+
+export pure circuit deriveClaimNullifier(
+    invoiceId: Bytes<32>,
+    merchantClaimSecret: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:claim-nullifier:v1"),
+        invoiceId,
+        merchantClaimSecret
+    ]);
+}
+
+export pure circuit deriveEscrowCoinCommitment(
+    nonce: Bytes<32>,
+    color: Bytes<32>,
+    value: Uint<128>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>, Uint<128>]>([
+        pad(32, "lumapay:escrow-coin:v1"),
+        nonce,
+        color,
+        value
+    ]);
+}
+
+export pure circuit deriveReceiptCommitment(
+    invoiceId: Bytes<32>,
+    settlementNullifier: Bytes<32>,
+    amount: Uint<128>,
+    tokenId: Bytes<32>,
+    receiptSecret: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[
+        Bytes<32>, Bytes<32>, Bytes<32>, Uint<128>, Bytes<32>, Bytes<32>
+    ]>([
+        pad(32, "lumapay:receipt:v1"),
+        invoiceId,
+        settlementNullifier,
+        amount,
+        tokenId,
+        receiptSecret
+    ]);
+}
+
+export pure circuit deriveCampaignCommitment(
+    campaignId: Bytes<32>,
+    merchantPrivateIdentity: Bytes<32>,
+    minimumContribution: Uint<128>,
+    maximumContribution: Uint<128>,
+    acceptedTokenCount: Uint<8>,
+    acceptedTokenA: Bytes<32>,
+    acceptedTokenB: Bytes<32>,
+    acceptedTokenC: Bytes<32>,
+    acceptedTokenD: Bytes<32>,
+    campaignNonce: Bytes<32>,
+    randomness: Bytes<32>,
+    expiry: Uint<64>
+): Bytes<32> {
+    return persistentHash<[
+        Bytes<32>, Uint<16>, Bytes<32>, Bytes<32>, Uint<128>, Uint<128>,
+        Uint<8>, Bytes<32>, Bytes<32>, Bytes<32>, Bytes<32>, Bytes<32>,
+        Bytes<32>, Uint<64>
+    ]>([
+        pad(32, "lumapay:campaign-commitment:v1"),
+        1,
+        campaignId,
+        merchantPrivateIdentity,
+        minimumContribution,
+        maximumContribution,
+        acceptedTokenCount,
+        acceptedTokenA,
+        acceptedTokenB,
+        acceptedTokenC,
+        acceptedTokenD,
+        campaignNonce,
+        randomness,
+        expiry
+    ]);
+}
+
+export pure circuit deriveContributionNullifier(
+    campaignId: Bytes<32>,
+    contributionSecret: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:contribution-nf:v1"),
+        campaignId,
+        contributionSecret
+    ]);
+}
+
+export pure circuit deriveContributionId(
+    campaignId: Bytes<32>,
+    contributionNullifier: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:contribution-id:v1"),
+        campaignId,
+        contributionNullifier
+    ]);
+}
+
+export pure circuit deriveContributionReceiptCommitment(
+    contributionId: Bytes<32>,
+    contributionNullifier: Bytes<32>,
+    amount: Uint<128>,
+    tokenId: Bytes<32>,
+    receiptSecret: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[
+        Bytes<32>, Bytes<32>, Bytes<32>, Uint<128>, Bytes<32>, Bytes<32>
+    ]>([
+        pad(32, "lumapay:contribution-receipt:v1"),
+        contributionId,
+        contributionNullifier,
+        amount,
+        tokenId,
+        receiptSecret
+    ]);
+}
+
+export pure circuit deriveContributionClaimNullifier(
+    contributionId: Bytes<32>,
+    merchantClaimSecret: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:contribution-claim:v1"),
+        contributionId,
+        merchantClaimSecret
+    ]);
+}
+
+export pure circuit deriveGiftCardCommitment(
+    giftCardId: Bytes<32>,
+    amount: Uint<128>,
+    tokenId: Bytes<32>,
+    giftSecret: Bytes<32>,
+    randomness: Bytes<32>,
+    expiry: Uint<64>
+): Bytes<32> {
+    return persistentHash<[
+        Bytes<32>, Uint<16>, Bytes<32>, Uint<128>, Bytes<32>, Bytes<32>,
+        Bytes<32>, Uint<64>
+    ]>([
+        pad(32, "lumapay:gift-card-commitment:v1"),
+        1,
+        giftCardId,
+        amount,
+        tokenId,
+        giftSecret,
+        randomness,
+        expiry
+    ]);
+}
+
+export pure circuit deriveGiftCardIssuerAuthorization(
+    giftCardId: Bytes<32>,
+    issuerSecret: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:gift-card-issuer:v1"),
+        giftCardId,
+        issuerSecret
+    ]);
+}
+
+export pure circuit deriveGiftCardRedemptionNullifier(
+    giftCardId: Bytes<32>,
+    giftSecret: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:gift-card-redeem:v1"),
+        giftCardId,
+        giftSecret
+    ]);
+}
+
+export pure circuit deriveGiftCardReclaimNullifier(
+    giftCardId: Bytes<32>,
+    issuerSecret: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:gift-card-reclaim:v1"),
+        giftCardId,
+        issuerSecret
+    ]);
+}
+
+export pure circuit deriveQuoteCommitment(
+    quoteId: Bytes<32>,
+    providerId: Bytes<32>,
+    invoiceId: Bytes<32>,
+    requestedToken: Bytes<32>,
+    requestedAmount: Uint<128>,
+    paymentToken: Bytes<32>,
+    acceptedPaymentAmount: Uint<128>,
+    expiry: Uint<64>,
+    randomness: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[
+        Bytes<32>, Uint<16>, Bytes<32>, Bytes<32>, Bytes<32>, Bytes<32>,
+        Uint<128>, Bytes<32>, Uint<128>, Uint<64>, Bytes<32>
+    ]>([
+        pad(32, "lumapay:quote-commitment:v1"),
+        1,
+        quoteId,
+        providerId,
+        invoiceId,
+        requestedToken,
+        requestedAmount,
+        paymentToken,
+        acceptedPaymentAmount,
+        expiry,
+        randomness
+    ]);
+}
+
+export circuit createInvoice(
+    invoiceId: Bytes<32>,
+    invoiceCommitment: Bytes<32>,
+    merchantAuthorizationCommitment: Bytes<32>,
+    expiry: Uint<64>
+): [] {
+    assert(invoiceId != default<Bytes<32>>, "invoice id is required");
+    assert(invoiceCommitment != default<Bytes<32>>, "invoice commitment is required");
+    assert(
+        merchantAuthorizationCommitment != default<Bytes<32>>,
+        "merchant authorization is required"
+    );
+    assert(!invoiceIds.member(disclose(invoiceId)), "invoice already exists");
+    assert(blockTimeLt(disclose(expiry)), "expiry must be in the future");
+
+    invoiceIds.insert(disclose(invoiceId));
+    invoices.insert(disclose(invoiceId), InvoicePublicState {
+        commitmentVersion: 1,
+        commitment: disclose(invoiceCommitment),
+        merchantAuthorization: disclose(merchantAuthorizationCommitment),
+        expiry: disclose(expiry),
+        status: InvoiceStatus.OPEN,
+        settlementNullifier: default<Bytes<32>>,
+        escrowCoinCommitment: default<Bytes<32>>,
+        receiptCommitment: default<Bytes<32>>,
+        claimed: false
+    });
+}
+
+export circuit payInvoice(
+    invoiceId: Bytes<32>,
+    merchantPrivateIdentity: Bytes<32>,
+    amount: Uint<128>,
+    tokenId: Bytes<32>,
+    invoiceNonce: Bytes<32>,
+    invoiceRandomness: Bytes<32>,
+    paymentSecret: Bytes<32>,
+    receiptSecret: Bytes<32>,
+    coin: ShieldedCoinInfo
+): [] {
+    assert(invoiceIds.member(disclose(invoiceId)), "invoice does not exist");
+    const invoice = invoices.lookup(disclose(invoiceId));
+    assert(invoice.status == InvoiceStatus.OPEN, "invoice is not open");
+    assert(blockTimeLt(invoice.expiry), "invoice has expired");
+
+    const expectedCommitment = deriveInvoiceCommitment(
+        invoiceId,
+        merchantPrivateIdentity,
+        amount,
+        tokenId,
+        invoiceNonce,
+        invoiceRandomness,
+        invoice.expiry
+    );
+    assert(expectedCommitment == invoice.commitment, "invalid invoice opening");
+    assert(amount > 0, "payment amount must be positive");
+    assert(coin.value == amount, "wrong payment amount");
+    assert(coin.color == tokenId, "wrong payment token");
+
+    const nullifier = derivePaymentNullifier(invoiceId, paymentSecret);
+    assert(!paymentNullifiers.member(disclose(nullifier)), "payment replay");
+
+    receiveShielded(disclose(coin));
+    paymentNullifiers.insert(disclose(nullifier));
+
+    const escrowCommitment = deriveEscrowCoinCommitment(coin.nonce, coin.color, coin.value);
+    const receipt = deriveReceiptCommitment(invoiceId, nullifier, amount, tokenId, receiptSecret);
+    invoices.insert(disclose(invoiceId), InvoicePublicState {
+        commitmentVersion: invoice.commitmentVersion,
+        commitment: invoice.commitment,
+        merchantAuthorization: invoice.merchantAuthorization,
+        expiry: invoice.expiry,
+        status: InvoiceStatus.SETTLED,
+        settlementNullifier: disclose(nullifier),
+        escrowCoinCommitment: disclose(escrowCommitment),
+        receiptCommitment: disclose(receipt),
+        claimed: false
+    });
+}
+
+export circuit claimInvoice(
+    invoiceId: Bytes<32>,
+    merchantClaimSecret: Bytes<32>,
+    escrowCoin: QualifiedShieldedCoinInfo
+): ShieldedSendResult {
+    assert(invoiceIds.member(disclose(invoiceId)), "invoice does not exist");
+    const invoice = invoices.lookup(disclose(invoiceId));
+    assert(invoice.status == InvoiceStatus.SETTLED, "invoice is not settled");
+    assert(!invoice.claimed, "invoice already claimed");
+    assert(
+        deriveMerchantAuthorization(merchantClaimSecret) == invoice.merchantAuthorization,
+        "unauthorized claim"
+    );
+    assert(
+        deriveEscrowCoinCommitment(escrowCoin.nonce, escrowCoin.color, escrowCoin.value)
+            == invoice.escrowCoinCommitment,
+        "wrong escrow coin"
+    );
+
+    const nullifier = deriveClaimNullifier(invoiceId, merchantClaimSecret);
+    assert(!claimNullifiers.member(disclose(nullifier)), "claim replay");
+    claimNullifiers.insert(disclose(nullifier));
+
+    invoices.insert(disclose(invoiceId), InvoicePublicState {
+        commitmentVersion: invoice.commitmentVersion,
+        commitment: invoice.commitment,
+        merchantAuthorization: invoice.merchantAuthorization,
+        expiry: invoice.expiry,
+        status: invoice.status,
+        settlementNullifier: invoice.settlementNullifier,
+        escrowCoinCommitment: invoice.escrowCoinCommitment,
+        receiptCommitment: invoice.receiptCommitment,
+        claimed: true
+    });
+
+    // The authenticated claimant is the receiver. Midnight can therefore create
+    // the wallet-visible ciphertext without exposing a merchant payment identity.
+    return sendShielded(
+        disclose(escrowCoin),
+        left<ZswapCoinPublicKey, ContractAddress>(ownPublicKey()),
+        disclose(escrowCoin.value)
+    );
+}
+
+export circuit cancelInvoice(invoiceId: Bytes<32>, merchantClaimSecret: Bytes<32>): [] {
+    assert(invoiceIds.member(disclose(invoiceId)), "invoice does not exist");
+    const invoice = invoices.lookup(disclose(invoiceId));
+    assert(invoice.status == InvoiceStatus.OPEN, "invoice is not open");
+    assert(
+        deriveMerchantAuthorization(merchantClaimSecret) == invoice.merchantAuthorization,
+        "unauthorized cancellation"
+    );
+
+    invoices.insert(disclose(invoiceId), InvoicePublicState {
+        commitmentVersion: invoice.commitmentVersion,
+        commitment: invoice.commitment,
+        merchantAuthorization: invoice.merchantAuthorization,
+        expiry: invoice.expiry,
+        status: InvoiceStatus.CANCELLED,
+        settlementNullifier: invoice.settlementNullifier,
+        escrowCoinCommitment: invoice.escrowCoinCommitment,
+        receiptCommitment: invoice.receiptCommitment,
+        claimed: invoice.claimed
+    });
+}
+
+export circuit expireInvoice(invoiceId: Bytes<32>): [] {
+    assert(invoiceIds.member(disclose(invoiceId)), "invoice does not exist");
+    const invoice = invoices.lookup(disclose(invoiceId));
+    assert(invoice.status == InvoiceStatus.OPEN, "invoice is not open");
+    assert(blockTimeGte(invoice.expiry), "invoice has not expired");
+
+    invoices.insert(disclose(invoiceId), InvoicePublicState {
+        commitmentVersion: invoice.commitmentVersion,
+        commitment: invoice.commitment,
+        merchantAuthorization: invoice.merchantAuthorization,
+        expiry: invoice.expiry,
+        status: InvoiceStatus.EXPIRED,
+        settlementNullifier: invoice.settlementNullifier,
+        escrowCoinCommitment: invoice.escrowCoinCommitment,
+        receiptCommitment: invoice.receiptCommitment,
+        claimed: invoice.claimed
+    });
+}
+
+export pure circuit verifyReceipt(
+    invoiceId: Bytes<32>,
+    settlementNullifier: Bytes<32>,
+    amount: Uint<128>,
+    tokenId: Bytes<32>,
+    receiptSecret: Bytes<32>,
+    expectedReceiptCommitment: Bytes<32>
+): Boolean {
+    return deriveReceiptCommitment(
+        invoiceId,
+        settlementNullifier,
+        amount,
+        tokenId,
+        receiptSecret
+    ) == expectedReceiptCommitment;
+}
+
+export circuit createCampaign(
+    campaignId: Bytes<32>,
+    campaignCommitment: Bytes<32>,
+    merchantAuthorizationCommitment: Bytes<32>,
+    expiry: Uint<64>
+): [] {
+    assert(campaignId != default<Bytes<32>>, "campaign id is required");
+    assert(campaignCommitment != default<Bytes<32>>, "campaign commitment is required");
+    assert(
+        merchantAuthorizationCommitment != default<Bytes<32>>,
+        "merchant authorization is required"
+    );
+    assert(!campaignIds.member(disclose(campaignId)), "campaign already exists");
+    assert(blockTimeLt(disclose(expiry)), "expiry must be in the future");
+
+    campaignIds.insert(disclose(campaignId));
+    campaigns.insert(disclose(campaignId), CampaignPublicState {
+        commitmentVersion: 1,
+        commitment: disclose(campaignCommitment),
+        merchantAuthorization: disclose(merchantAuthorizationCommitment),
+        expiry: disclose(expiry),
+        status: CampaignStatus.OPEN,
+        contributionCount: 0
+    });
+}
+
+export circuit contribute(
+    campaignId: Bytes<32>,
+    merchantPrivateIdentity: Bytes<32>,
+    minimumContribution: Uint<128>,
+    maximumContribution: Uint<128>,
+    acceptedTokenCount: Uint<8>,
+    acceptedTokenA: Bytes<32>,
+    acceptedTokenB: Bytes<32>,
+    acceptedTokenC: Bytes<32>,
+    acceptedTokenD: Bytes<32>,
+    campaignNonce: Bytes<32>,
+    campaignRandomness: Bytes<32>,
+    contributionSecret: Bytes<32>,
+    receiptSecret: Bytes<32>,
+    coin: ShieldedCoinInfo
+): [] {
+    assert(campaignIds.member(disclose(campaignId)), "campaign does not exist");
+    const campaign = campaigns.lookup(disclose(campaignId));
+    assert(campaign.status == CampaignStatus.OPEN, "campaign is not open");
+    assert(blockTimeLt(campaign.expiry), "campaign has expired");
+    assert(minimumContribution > 0, "minimum contribution must be positive");
+    assert(maximumContribution >= minimumContribution, "invalid contribution range");
+    assert(acceptedTokenCount >= 1 && acceptedTokenCount <= 4, "invalid token policy");
+
+    const expectedCommitment = deriveCampaignCommitment(
+        campaignId,
+        merchantPrivateIdentity,
+        minimumContribution,
+        maximumContribution,
+        acceptedTokenCount,
+        acceptedTokenA,
+        acceptedTokenB,
+        acceptedTokenC,
+        acceptedTokenD,
+        campaignNonce,
+        campaignRandomness,
+        campaign.expiry
+    );
+    assert(expectedCommitment == campaign.commitment, "invalid campaign opening");
+    assert(
+        coin.value >= minimumContribution && coin.value <= maximumContribution,
+        "contribution amount outside campaign range"
+    );
+
+    const tokenAllowed = coin.color == acceptedTokenA
+        || (acceptedTokenCount >= 2 && coin.color == acceptedTokenB)
+        || (acceptedTokenCount >= 3 && coin.color == acceptedTokenC)
+        || (acceptedTokenCount >= 4 && coin.color == acceptedTokenD);
+    assert(tokenAllowed, "token not accepted by campaign");
+
+    const nullifier = deriveContributionNullifier(campaignId, contributionSecret);
+    const contributionId = deriveContributionId(campaignId, nullifier);
+    assert(!contributionNullifiers.member(disclose(nullifier)), "contribution replay");
+    assert(!contributionIds.member(disclose(contributionId)), "contribution already exists");
+    assert(
+        campaign.contributionCount < 18446744073709551615,
+        "campaign contribution counter overflow"
+    );
+
+    receiveShielded(disclose(coin));
+    contributionNullifiers.insert(disclose(nullifier));
+    contributionIds.insert(disclose(contributionId));
+    contributions.insert(disclose(contributionId), ContributionPublicState {
+        campaignId: disclose(campaignId),
+        nullifier: disclose(nullifier),
+        escrowCoinCommitment: disclose(
+            deriveEscrowCoinCommitment(coin.nonce, coin.color, coin.value)
+        ),
+        receiptCommitment: disclose(
+            deriveContributionReceiptCommitment(
+                contributionId,
+                nullifier,
+                coin.value,
+                coin.color,
+                receiptSecret
+            )
+        ),
+        claimed: false
+    });
+    campaigns.insert(disclose(campaignId), CampaignPublicState {
+        commitmentVersion: campaign.commitmentVersion,
+        commitment: campaign.commitment,
+        merchantAuthorization: campaign.merchantAuthorization,
+        expiry: campaign.expiry,
+        status: campaign.status,
+        contributionCount: (campaign.contributionCount + 1) as Uint<64>
+    });
+}
+
+export circuit claimContribution(
+    contributionId: Bytes<32>,
+    merchantClaimSecret: Bytes<32>,
+    escrowCoin: QualifiedShieldedCoinInfo
+): ShieldedSendResult {
+    assert(contributionIds.member(disclose(contributionId)), "contribution does not exist");
+    const contribution = contributions.lookup(disclose(contributionId));
+    assert(!contribution.claimed, "contribution already claimed");
+    const campaign = campaigns.lookup(contribution.campaignId);
+    assert(
+        deriveMerchantAuthorization(merchantClaimSecret) == campaign.merchantAuthorization,
+        "unauthorized contribution claim"
+    );
+    assert(
+        deriveEscrowCoinCommitment(escrowCoin.nonce, escrowCoin.color, escrowCoin.value)
+            == contribution.escrowCoinCommitment,
+        "wrong contribution escrow coin"
+    );
+
+    const nullifier = deriveContributionClaimNullifier(contributionId, merchantClaimSecret);
+    assert(!claimNullifiers.member(disclose(nullifier)), "contribution claim replay");
+    claimNullifiers.insert(disclose(nullifier));
+    contributions.insert(disclose(contributionId), ContributionPublicState {
+        campaignId: contribution.campaignId,
+        nullifier: contribution.nullifier,
+        escrowCoinCommitment: contribution.escrowCoinCommitment,
+        receiptCommitment: contribution.receiptCommitment,
+        claimed: true
+    });
+
+    return sendShielded(
+        disclose(escrowCoin),
+        left<ZswapCoinPublicKey, ContractAddress>(ownPublicKey()),
+        disclose(escrowCoin.value)
+    );
+}
+
+export circuit cancelCampaign(campaignId: Bytes<32>, merchantClaimSecret: Bytes<32>): [] {
+    assert(campaignIds.member(disclose(campaignId)), "campaign does not exist");
+    const campaign = campaigns.lookup(disclose(campaignId));
+    assert(campaign.status == CampaignStatus.OPEN, "campaign is not open");
+    assert(
+        deriveMerchantAuthorization(merchantClaimSecret) == campaign.merchantAuthorization,
+        "unauthorized campaign cancellation"
+    );
+    campaigns.insert(disclose(campaignId), CampaignPublicState {
+        commitmentVersion: campaign.commitmentVersion,
+        commitment: campaign.commitment,
+        merchantAuthorization: campaign.merchantAuthorization,
+        expiry: campaign.expiry,
+        status: CampaignStatus.CANCELLED,
+        contributionCount: campaign.contributionCount
+    });
+}
+
+export circuit expireCampaign(campaignId: Bytes<32>): [] {
+    assert(campaignIds.member(disclose(campaignId)), "campaign does not exist");
+    const campaign = campaigns.lookup(disclose(campaignId));
+    assert(campaign.status == CampaignStatus.OPEN, "campaign is not open");
+    assert(blockTimeGte(campaign.expiry), "campaign has not expired");
+    campaigns.insert(disclose(campaignId), CampaignPublicState {
+        commitmentVersion: campaign.commitmentVersion,
+        commitment: campaign.commitment,
+        merchantAuthorization: campaign.merchantAuthorization,
+        expiry: campaign.expiry,
+        status: CampaignStatus.EXPIRED,
+        contributionCount: campaign.contributionCount
+    });
+}
+
+export pure circuit verifyContributionReceipt(
+    contributionId: Bytes<32>,
+    contributionNullifier: Bytes<32>,
+    amount: Uint<128>,
+    tokenId: Bytes<32>,
+    receiptSecret: Bytes<32>,
+    expectedReceiptCommitment: Bytes<32>
+): Boolean {
+    return deriveContributionReceiptCommitment(
+        contributionId,
+        contributionNullifier,
+        amount,
+        tokenId,
+        receiptSecret
+    ) == expectedReceiptCommitment;
+}
+
+export circuit createGiftCard(
+    giftCardId: Bytes<32>,
+    amount: Uint<128>,
+    tokenId: Bytes<32>,
+    giftSecret: Bytes<32>,
+    giftRandomness: Bytes<32>,
+    issuerAuthorizationCommitment: Bytes<32>,
+    expiry: Uint<64>,
+    coin: ShieldedCoinInfo
+): [] {
+    assert(giftCardId != default<Bytes<32>>, "gift card id is required");
+    assert(!giftCardIds.member(disclose(giftCardId)), "gift card already exists");
+    assert(amount > 0, "gift card amount must be positive");
+    assert(blockTimeLt(disclose(expiry)), "expiry must be in the future");
+    assert(
+        issuerAuthorizationCommitment != default<Bytes<32>>,
+        "gift card issuer authorization is required"
+    );
+    assert(coin.value == amount, "wrong gift card amount");
+    assert(coin.color == tokenId, "wrong gift card token");
+
+    const commitment = deriveGiftCardCommitment(
+        giftCardId,
+        amount,
+        tokenId,
+        giftSecret,
+        giftRandomness,
+        expiry
+    );
+    receiveShielded(disclose(coin));
+    giftCardIds.insert(disclose(giftCardId));
+    giftCards.insert(disclose(giftCardId), GiftCardPublicState {
+        commitmentVersion: 1,
+        commitment: disclose(commitment),
+        issuerAuthorization: disclose(issuerAuthorizationCommitment),
+        expiry: disclose(expiry),
+        escrowCoinCommitment: disclose(
+            deriveEscrowCoinCommitment(coin.nonce, coin.color, coin.value)
+        ),
+        redemptionNullifier: default<Bytes<32>>,
+        status: GiftCardStatus.OPEN
+    });
+}
+
+export circuit redeemGiftCard(
+    giftCardId: Bytes<32>,
+    amount: Uint<128>,
+    tokenId: Bytes<32>,
+    giftSecret: Bytes<32>,
+    giftRandomness: Bytes<32>,
+    escrowCoin: QualifiedShieldedCoinInfo
+): ShieldedSendResult {
+    assert(giftCardIds.member(disclose(giftCardId)), "gift card does not exist");
+    const giftCard = giftCards.lookup(disclose(giftCardId));
+    assert(giftCard.status == GiftCardStatus.OPEN, "gift card is not open");
+    assert(blockTimeLt(giftCard.expiry), "gift card has expired");
+    assert(
+        deriveGiftCardCommitment(
+            giftCardId,
+            amount,
+            tokenId,
+            giftSecret,
+            giftRandomness,
+            giftCard.expiry
+        ) == giftCard.commitment,
+        "invalid gift card opening"
+    );
+    assert(amount > 0, "gift card amount must be positive");
+    assert(escrowCoin.value == amount, "wrong gift card escrow amount");
+    assert(escrowCoin.color == tokenId, "wrong gift card escrow token");
+    assert(
+        deriveEscrowCoinCommitment(escrowCoin.nonce, escrowCoin.color, escrowCoin.value)
+            == giftCard.escrowCoinCommitment,
+        "wrong gift card escrow coin"
+    );
+
+    const nullifier = deriveGiftCardRedemptionNullifier(giftCardId, giftSecret);
+    assert(!giftCardNullifiers.member(disclose(nullifier)), "gift card replay");
+    giftCardNullifiers.insert(disclose(nullifier));
+    giftCards.insert(disclose(giftCardId), GiftCardPublicState {
+        commitmentVersion: giftCard.commitmentVersion,
+        commitment: giftCard.commitment,
+        issuerAuthorization: giftCard.issuerAuthorization,
+        expiry: giftCard.expiry,
+        escrowCoinCommitment: giftCard.escrowCoinCommitment,
+        redemptionNullifier: disclose(nullifier),
+        status: GiftCardStatus.REDEEMED
+    });
+
+    return sendShielded(
+        disclose(escrowCoin),
+        left<ZswapCoinPublicKey, ContractAddress>(ownPublicKey()),
+        disclose(escrowCoin.value)
+    );
+}
+
+export circuit reclaimExpiredGiftCard(
+    giftCardId: Bytes<32>,
+    issuerSecret: Bytes<32>,
+    escrowCoin: QualifiedShieldedCoinInfo
+): ShieldedSendResult {
+    assert(giftCardIds.member(disclose(giftCardId)), "gift card does not exist");
+    const giftCard = giftCards.lookup(disclose(giftCardId));
+    assert(giftCard.status == GiftCardStatus.OPEN, "gift card is not open");
+    assert(blockTimeGte(giftCard.expiry), "gift card has not expired");
+    assert(
+        deriveGiftCardIssuerAuthorization(giftCardId, issuerSecret) == giftCard.issuerAuthorization,
+        "unauthorized gift card reclaim"
+    );
+    assert(
+        deriveEscrowCoinCommitment(escrowCoin.nonce, escrowCoin.color, escrowCoin.value)
+            == giftCard.escrowCoinCommitment,
+        "wrong gift card escrow coin"
+    );
+
+    const nullifier = deriveGiftCardReclaimNullifier(giftCardId, issuerSecret);
+    assert(!giftCardNullifiers.member(disclose(nullifier)), "gift card reclaim replay");
+    giftCardNullifiers.insert(disclose(nullifier));
+    giftCards.insert(disclose(giftCardId), GiftCardPublicState {
+        commitmentVersion: giftCard.commitmentVersion,
+        commitment: giftCard.commitment,
+        issuerAuthorization: giftCard.issuerAuthorization,
+        expiry: giftCard.expiry,
+        escrowCoinCommitment: giftCard.escrowCoinCommitment,
+        redemptionNullifier: disclose(nullifier),
+        status: GiftCardStatus.RECLAIMED
+    });
+
+    return sendShielded(
+        disclose(escrowCoin),
+        left<ZswapCoinPublicKey, ContractAddress>(ownPublicKey()),
+        disclose(escrowCoin.value)
+    );
+}
+
+export circuit rotateRegistryAdmin(
+    currentAdminSecret: Bytes<32>,
+    newAdminAuthorizationCommitment: Bytes<32>
+): [] {
+    assert(
+        deriveRegistryAdminAuthorization(currentAdminSecret) == registryAdminAuthorization,
+        "unauthorized registry admin rotation"
+    );
+    assert(
+        newAdminAuthorizationCommitment != default<Bytes<32>>,
+        "new registry admin authorization is required"
+    );
+    registryAdminAuthorization = disclose(newAdminAuthorizationCommitment);
+}
+
+export circuit registerQuoteProvider(
+    providerId: Bytes<32>,
+    providerAuthorizationCommitment: Bytes<32>,
+    registryAdminSecret: Bytes<32>
+): [] {
+    assert(
+        deriveRegistryAdminAuthorization(registryAdminSecret) == registryAdminAuthorization,
+        "unauthorized quote provider registration"
+    );
+    assert(providerId != default<Bytes<32>>, "quote provider id is required");
+    assert(
+        providerAuthorizationCommitment != default<Bytes<32>>,
+        "quote provider authorization is required"
+    );
+    assert(!quoteProviderIds.member(disclose(providerId)), "quote provider already exists");
+    quoteProviderIds.insert(disclose(providerId));
+    quoteProviderAuthorizations.insert(
+        disclose(providerId),
+        disclose(providerAuthorizationCommitment)
+    );
+}
+
+export circuit rotateQuoteProvider(
+    providerId: Bytes<32>,
+    newProviderAuthorizationCommitment: Bytes<32>,
+    registryAdminSecret: Bytes<32>
+): [] {
+    assert(
+        deriveRegistryAdminAuthorization(registryAdminSecret) == registryAdminAuthorization,
+        "unauthorized quote provider rotation"
+    );
+    assert(quoteProviderIds.member(disclose(providerId)), "quote provider does not exist");
+    assert(
+        newProviderAuthorizationCommitment != default<Bytes<32>>,
+        "new quote provider authorization is required"
+    );
+    quoteProviderAuthorizations.insert(
+        disclose(providerId),
+        disclose(newProviderAuthorizationCommitment)
+    );
+}
+
+export circuit removeQuoteProvider(
+    providerId: Bytes<32>,
+    registryAdminSecret: Bytes<32>
+): [] {
+    assert(
+        deriveRegistryAdminAuthorization(registryAdminSecret) == registryAdminAuthorization,
+        "unauthorized quote provider removal"
+    );
+    assert(quoteProviderIds.member(disclose(providerId)), "quote provider does not exist");
+    quoteProviderIds.remove(disclose(providerId));
+    quoteProviderAuthorizations.remove(disclose(providerId));
+}
+
+export circuit registerQuote(
+    quoteId: Bytes<32>,
+    providerId: Bytes<32>,
+    quoteCommitment: Bytes<32>,
+    expiry: Uint<64>,
+    providerSecret: Bytes<32>
+): [] {
+    assert(quoteId != default<Bytes<32>>, "quote id is required");
+    assert(quoteCommitment != default<Bytes<32>>, "quote commitment is required");
+    assert(!quoteIds.member(disclose(quoteId)), "quote already exists");
+    assert(quoteProviderIds.member(disclose(providerId)), "quote provider is disabled");
+    assert(blockTimeLt(disclose(expiry)), "quote expiry must be in the future");
+    assert(
+        deriveQuoteProviderAuthorization(providerId, providerSecret)
+            == quoteProviderAuthorizations.lookup(disclose(providerId)),
+        "unauthorized quote"
+    );
+
+    quoteIds.insert(disclose(quoteId));
+    quotes.insert(disclose(quoteId), QuotePublicState {
+        commitmentVersion: 1,
+        commitment: disclose(quoteCommitment),
+        providerId: disclose(providerId),
+        expiry: disclose(expiry),
+        consumed: false
+    });
+}
+
+// A converted checkout accepts the exact alternative shielded token amount in
+// the provider quote. It does not assume or invoke liquidity. A future Zswap
+// adapter may atomically source this coin, but the contract remains correct when
+// the payer already owns the accepted token.
+export circuit payInvoiceWithQuote(
+    invoiceId: Bytes<32>,
+    merchantPrivateIdentity: Bytes<32>,
+    requestedAmount: Uint<128>,
+    requestedToken: Bytes<32>,
+    invoiceNonce: Bytes<32>,
+    invoiceRandomness: Bytes<32>,
+    quoteId: Bytes<32>,
+    providerId: Bytes<32>,
+    paymentToken: Bytes<32>,
+    acceptedPaymentAmount: Uint<128>,
+    quoteRandomness: Bytes<32>,
+    paymentSecret: Bytes<32>,
+    receiptSecret: Bytes<32>,
+    coin: ShieldedCoinInfo
+): [] {
+    assert(invoiceIds.member(disclose(invoiceId)), "invoice does not exist");
+    assert(quoteIds.member(disclose(quoteId)), "quote does not exist");
+    const invoice = invoices.lookup(disclose(invoiceId));
+    const quote = quotes.lookup(disclose(quoteId));
+
+    assert(invoice.status == InvoiceStatus.OPEN, "invoice is not open");
+    assert(blockTimeLt(invoice.expiry), "invoice has expired");
+    assert(!quote.consumed, "quote already consumed");
+    assert(blockTimeLt(quote.expiry), "quote has expired");
+    assert(quote.providerId == providerId, "wrong quote provider");
+    assert(quoteProviderIds.member(disclose(providerId)), "quote provider is disabled");
+    assert(requestedAmount > 0, "requested amount must be positive");
+    assert(acceptedPaymentAmount > 0, "accepted payment amount must be positive");
+    assert(paymentToken != requestedToken, "conversion requires a different token");
+
+    assert(
+        deriveInvoiceCommitment(
+            invoiceId,
+            merchantPrivateIdentity,
+            requestedAmount,
+            requestedToken,
+            invoiceNonce,
+            invoiceRandomness,
+            invoice.expiry
+        ) == invoice.commitment,
+        "invalid invoice opening"
+    );
+    assert(
+        deriveQuoteCommitment(
+            quoteId,
+            providerId,
+            invoiceId,
+            requestedToken,
+            requestedAmount,
+            paymentToken,
+            acceptedPaymentAmount,
+            quote.expiry,
+            quoteRandomness
+        ) == quote.commitment,
+        "invalid quote opening"
+    );
+    assert(coin.color == paymentToken, "wrong quoted payment token");
+    assert(coin.value == acceptedPaymentAmount, "wrong quoted payment amount");
+
+    const nullifier = derivePaymentNullifier(invoiceId, paymentSecret);
+    assert(!paymentNullifiers.member(disclose(nullifier)), "payment replay");
+    receiveShielded(disclose(coin));
+    paymentNullifiers.insert(disclose(nullifier));
+
+    invoices.insert(disclose(invoiceId), InvoicePublicState {
+        commitmentVersion: invoice.commitmentVersion,
+        commitment: invoice.commitment,
+        merchantAuthorization: invoice.merchantAuthorization,
+        expiry: invoice.expiry,
+        status: InvoiceStatus.SETTLED,
+        settlementNullifier: disclose(nullifier),
+        escrowCoinCommitment: disclose(
+            deriveEscrowCoinCommitment(coin.nonce, coin.color, coin.value)
+        ),
+        receiptCommitment: disclose(
+            deriveReceiptCommitment(
+                invoiceId,
+                nullifier,
+                acceptedPaymentAmount,
+                paymentToken,
+                receiptSecret
+            )
+        ),
+        claimed: false
+    });
+    quotes.insert(disclose(quoteId), QuotePublicState {
+        commitmentVersion: quote.commitmentVersion,
+        commitment: quote.commitment,
+        providerId: quote.providerId,
+        expiry: quote.expiry,
+        consumed: true
+    });
+}
+
+// The encrypted wallet/card backup remains off-chain. The ledger stores only
+// an integrity digest and a commitment-derived authorization value.
+export circuit registerBackupAnchor(
+    ownerId: Bytes<32>,
+    backupAuthorizationCommitment: Bytes<32>,
+    encryptedBlobDigest: Bytes<32>
+): [] {
+    assert(ownerId != default<Bytes<32>>, "backup owner id is required");
+    assert(
+        backupAuthorizationCommitment != default<Bytes<32>>,
+        "backup authorization is required"
+    );
+    assert(encryptedBlobDigest != default<Bytes<32>>, "encrypted backup digest is required");
+    assert(!backupOwnerIds.member(disclose(ownerId)), "backup anchor already exists");
+    backupOwnerIds.insert(disclose(ownerId));
+    backupAnchors.insert(disclose(ownerId), BackupAnchorPublicState {
+        formatVersion: 1,
+        authorization: disclose(backupAuthorizationCommitment),
+        encryptedBlobDigest: disclose(encryptedBlobDigest)
+    });
+}
+
+export circuit updateBackupAnchor(
+    ownerId: Bytes<32>,
+    backupSecret: Bytes<32>,
+    encryptedBlobDigest: Bytes<32>
+): [] {
+    assert(backupOwnerIds.member(disclose(ownerId)), "backup anchor does not exist");
+    const anchor = backupAnchors.lookup(disclose(ownerId));
+    assert(
+        deriveBackupAuthorization(ownerId, backupSecret) == anchor.authorization,
+        "unauthorized backup update"
+    );
+    assert(encryptedBlobDigest != default<Bytes<32>>, "encrypted backup digest is required");
+    backupAnchors.insert(disclose(ownerId), BackupAnchorPublicState {
+        formatVersion: anchor.formatVersion,
+        authorization: anchor.authorization,
+        encryptedBlobDigest: disclose(encryptedBlobDigest)
+    });
+}
+
+export circuit rotateBackupAuthorization(
+    ownerId: Bytes<32>,
+    currentBackupSecret: Bytes<32>,
+    newBackupAuthorizationCommitment: Bytes<32>
+): [] {
+    assert(backupOwnerIds.member(disclose(ownerId)), "backup anchor does not exist");
+    const anchor = backupAnchors.lookup(disclose(ownerId));
+    assert(
+        deriveBackupAuthorization(ownerId, currentBackupSecret) == anchor.authorization,
+        "unauthorized backup rotation"
+    );
+    assert(
+        newBackupAuthorizationCommitment != default<Bytes<32>>,
+        "new backup authorization is required"
+    );
+    backupAnchors.insert(disclose(ownerId), BackupAnchorPublicState {
+        formatVersion: anchor.formatVersion,
+        authorization: disclose(newBackupAuthorizationCommitment),
+        encryptedBlobDigest: anchor.encryptedBlobDigest
+    });
+}
+
+export circuit deleteBackupAnchor(ownerId: Bytes<32>, backupSecret: Bytes<32>): [] {
+    assert(backupOwnerIds.member(disclose(ownerId)), "backup anchor does not exist");
+    const anchor = backupAnchors.lookup(disclose(ownerId));
+    assert(
+        deriveBackupAuthorization(ownerId, backupSecret) == anchor.authorization,
+        "unauthorized backup deletion"
+    );
+    backupOwnerIds.remove(disclose(ownerId));
+    backupAnchors.remove(disclose(ownerId));
+}
+
+// These proof circuits reveal only the public object identifier. Amount, token,
+// and receipt secret remain private while the proof is constrained against the
+// authoritative settlement commitment on the ledger.
+export circuit proveInvoiceSettlement(
+    invoiceId: Bytes<32>,
+    paidAmount: Uint<128>,
+    paidToken: Bytes<32>,
+    receiptSecret: Bytes<32>
+): [] {
+    assert(invoiceIds.member(disclose(invoiceId)), "invoice does not exist");
+    const invoice = invoices.lookup(disclose(invoiceId));
+    assert(invoice.status == InvoiceStatus.SETTLED, "invoice is not settled");
+    assert(
+        deriveReceiptCommitment(
+            invoiceId,
+            invoice.settlementNullifier,
+            paidAmount,
+            paidToken,
+            receiptSecret
+        ) == invoice.receiptCommitment,
+        "invalid settlement disclosure"
+    );
+}
+
+export circuit proveContributionSettlement(
+    contributionId: Bytes<32>,
+    paidAmount: Uint<128>,
+    paidToken: Bytes<32>,
+    receiptSecret: Bytes<32>
+): [] {
+    assert(contributionIds.member(disclose(contributionId)), "contribution does not exist");
+    const contribution = contributions.lookup(disclose(contributionId));
+    assert(
+        deriveContributionReceiptCommitment(
+            contributionId,
+            contribution.nullifier,
+            paidAmount,
+            paidToken,
+            receiptSecret
+        ) == contribution.receiptCommitment,
+        "invalid contribution disclosure"
+    );
+}

@@ -1,0 +1,105 @@
+import { motion, useScroll, useTransform } from 'framer-motion';
+import { useRef } from 'react';
+import { Link } from 'react-router-dom';
+import { ArrowRight } from 'lucide-react';
+
+export const AnimatedBanner = () => {
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    const { scrollYProgress } = useScroll({
+        target: containerRef,
+        offset: ['start end', 'end end']
+    });
+
+    const scale = useTransform(scrollYProgress, [0, 0.6], [0.88, 1]);
+    const opacity = useTransform(scrollYProgress, [0, 0.5], [0, 1]);
+    const domeY = useTransform(scrollYProgress, [0, 0.8], ['40%', '0%']);
+
+    return (
+        <section ref={containerRef} className="relative z-20 overflow-hidden px-4 py-16 md:px-8 lg:px-16">
+            <div className="mx-auto max-w-6xl">
+                <motion.div
+                    style={{ scale, opacity }}
+                    className="relative min-h-[420px] overflow-hidden rounded-[2.5rem] border border-white/[0.04] bg-[#0c0c0e] shadow-2xl"
+                >
+                    <div
+                        className="absolute inset-0 opacity-[0.05]"
+                        style={{
+                            backgroundImage: 'linear-gradient(to right, white 1px, transparent 1px)',
+                            backgroundSize: '8% 100%'
+                        }}
+                    />
+
+                    <div className="pointer-events-none absolute bottom-0 left-0 right-0 top-[42%] overflow-hidden rounded-b-[2.5rem]">
+                        <motion.div style={{ y: domeY }} className="relative h-full w-full">
+                            <motion.div
+                                animate={{ scale: [1, 1.05, 1], rotate: [-0.5, 0.5, -0.5] }}
+                                transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut' }}
+                                className="absolute left-1/2 top-0 aspect-[2/1] w-[160%] -translate-x-1/2 rounded-t-[100%] md:w-[130%]"
+                                style={{
+                                    background: 'linear-gradient(90deg, #fb923c 0%, #f97316 50%, #9a3412 100%)',
+                                    filter: 'blur(16px)',
+                                    boxShadow: '0 -20px 80px rgba(249, 115, 22, 0.25)'
+                                }}
+                            />
+                            <motion.div
+                                animate={{ scale: [1, 1.02, 1], rotate: [-0.3, 0.3, -0.3] }}
+                                transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut' }}
+                                className="absolute left-1/2 top-[4%] aspect-[2/1] w-[158%] -translate-x-1/2 rounded-t-[100%] md:w-[128%]"
+                                style={{
+                                    background: 'linear-gradient(90deg, #fdba74 0%, #f97316 50%, #c2410c 100%)'
+                                }}
+                            />
+                        </motion.div>
+                    </div>
+
+                    <div className="absolute left-1/2 top-0 h-px w-4/5 -translate-x-1/2 bg-gradient-to-r from-transparent via-orange-500/20 to-transparent" />
+
+                    <div className="relative z-10 flex min-h-[420px] flex-col items-center justify-center px-6 py-10 text-center sm:px-10 lg:px-16">
+                        <motion.h2
+                            initial={{ opacity: 0, y: 15 }}
+                            whileInView={{ opacity: 1, y: 0 }}
+                            viewport={{ once: true, margin: '-50px' }}
+                            transition={{ duration: 0.8, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                            className="mx-auto max-w-4xl text-center text-4xl font-medium leading-[1.05] tracking-tight text-white md:text-5xl lg:text-[3.7rem]"
+                        >
+                            Private payments that actually explain what LumaPay does.
+                        </motion.h2>
+
+                        <motion.p
+                            initial={{ opacity: 0, y: 15 }}
+                            whileInView={{ opacity: 1, y: 0 }}
+                            viewport={{ once: true, margin: '-50px' }}
+                            transition={{ duration: 0.8, delay: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                            className="mx-auto mt-5 max-w-2xl text-center text-base font-medium leading-7 text-white/70 md:text-lg"
+                        >
+                            Private checkout links, hidden payment trails, and verifiable settlement on Midnight.
+                        </motion.p>
+
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                            whileInView={{ opacity: 1, scale: 1, y: 0 }}
+                            viewport={{ once: true, margin: '-50px' }}
+                            transition={{ duration: 0.8, delay: 0.36, ease: [0.22, 1, 0.36, 1] }}
+                            className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center"
+                        >
+                            <Link
+                                to="/explorer"
+                                className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-8 py-3.5 text-sm font-semibold text-black shadow-[0_0_30px_rgba(249,115,22,0.3)] transition-all duration-300 hover:scale-105 hover:bg-orange-50"
+                            >
+                                Explore Product
+                                <ArrowRight className="h-4 w-4" />
+                            </Link>
+                            <Link
+                                to="/developer"
+                                className="inline-flex items-center justify-center rounded-full border border-white/12 bg-white/[0.04] px-8 py-3.5 text-sm font-semibold text-white/85 backdrop-blur-xl transition-all duration-300 hover:border-orange-400/25 hover:bg-white/[0.08] hover:text-white"
+                            >
+                                Developer Portal
+                            </Link>
+                        </motion.div>
+                    </div>
+                </motion.div>
+            </div>
+        </section>
+    );
+};

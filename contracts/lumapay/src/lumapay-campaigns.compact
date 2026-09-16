@@ -1,0 +1,365 @@
+pragma language_version 0.23;
+
+
+
+import CompactStandardLibrary;
+
+
+
+// Generated from lumapay.compact for the deployable campaigns module.
+
+export enum CampaignStatus { OPEN, CANCELLED, EXPIRED }
+
+export struct CampaignPublicState {
+    commitmentVersion: Uint<16>;
+    commitment: Bytes<32>;
+    merchantAuthorization: Bytes<32>;
+    expiry: Uint<64>;
+    status: CampaignStatus;
+    contributionCount: Uint<64>;
+}
+
+export struct ContributionPublicState {
+    campaignId: Bytes<32>;
+    nullifier: Bytes<32>;
+    escrowCoinCommitment: Bytes<32>;
+    receiptCommitment: Bytes<32>;
+    claimed: Boolean;
+}
+
+export ledger campaignIds: Set<Bytes<32>>;
+export ledger campaigns: Map<Bytes<32>, CampaignPublicState>;
+export ledger contributionIds: Set<Bytes<32>>;
+export ledger contributions: Map<Bytes<32>, ContributionPublicState>;
+export ledger contributionNullifiers: Set<Bytes<32>>;
+export ledger claimNullifiers: Set<Bytes<32>>;
+
+export pure circuit deriveMerchantAuthorization(merchantClaimSecret: Bytes<32>): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:merchant-auth:v1"),
+        merchantClaimSecret
+    ]);
+}
+
+export pure circuit deriveEscrowCoinCommitment(
+    nonce: Bytes<32>,
+    color: Bytes<32>,
+    value: Uint<128>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>, Uint<128>]>([
+        pad(32, "lumapay:escrow-coin:v1"),
+        nonce,
+        color,
+        value
+    ]);
+}
+
+export pure circuit deriveCampaignCommitment(
+    campaignId: Bytes<32>,
+    merchantPrivateIdentity: Bytes<32>,
+    minimumContribution: Uint<128>,
+    maximumContribution: Uint<128>,
+    acceptedTokenCount: Uint<8>,
+    acceptedTokenA: Bytes<32>,
+    acceptedTokenB: Bytes<32>,
+    acceptedTokenC: Bytes<32>,
+    acceptedTokenD: Bytes<32>,
+    campaignNonce: Bytes<32>,
+    randomness: Bytes<32>,
+    expiry: Uint<64>
+): Bytes<32> {
+    return persistentHash<[
+        Bytes<32>, Uint<16>, Bytes<32>, Bytes<32>, Uint<128>, Uint<128>,
+        Uint<8>, Bytes<32>, Bytes<32>, Bytes<32>, Bytes<32>, Bytes<32>,
+        Bytes<32>, Uint<64>
+    ]>([
+        pad(32, "lumapay:campaign-commitment:v1"),
+        1,
+        campaignId,
+        merchantPrivateIdentity,
+        minimumContribution,
+        maximumContribution,
+        acceptedTokenCount,
+        acceptedTokenA,
+        acceptedTokenB,
+        acceptedTokenC,
+        acceptedTokenD,
+        campaignNonce,
+        randomness,
+        expiry
+    ]);
+}
+
+export pure circuit deriveContributionNullifier(
+    campaignId: Bytes<32>,
+    contributionSecret: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:contribution-nf:v1"),
+        campaignId,
+        contributionSecret
+    ]);
+}
+
+export pure circuit deriveContributionId(
+    campaignId: Bytes<32>,
+    contributionNullifier: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:contribution-id:v1"),
+        campaignId,
+        contributionNullifier
+    ]);
+}
+
+export pure circuit deriveContributionReceiptCommitment(
+    contributionId: Bytes<32>,
+    contributionNullifier: Bytes<32>,
+    amount: Uint<128>,
+    tokenId: Bytes<32>,
+    receiptSecret: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[
+        Bytes<32>, Bytes<32>, Bytes<32>, Uint<128>, Bytes<32>, Bytes<32>
+    ]>([
+        pad(32, "lumapay:contribution-receipt:v1"),
+        contributionId,
+        contributionNullifier,
+        amount,
+        tokenId,
+        receiptSecret
+    ]);
+}
+
+export pure circuit deriveContributionClaimNullifier(
+    contributionId: Bytes<32>,
+    merchantClaimSecret: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:contribution-claim:v1"),
+        contributionId,
+        merchantClaimSecret
+    ]);
+}
+
+export circuit createCampaign(
+    campaignId: Bytes<32>,
+    campaignCommitment: Bytes<32>,
+    merchantAuthorizationCommitment: Bytes<32>,
+    expiry: Uint<64>
+): [] {
+    assert(campaignId != default<Bytes<32>>, "campaign id is required");
+    assert(campaignCommitment != default<Bytes<32>>, "campaign commitment is required");
+    assert(
+        merchantAuthorizationCommitment != default<Bytes<32>>,
+        "merchant authorization is required"
+    );
+    assert(!campaignIds.member(disclose(campaignId)), "campaign already exists");
+    assert(blockTimeLt(disclose(expiry)), "expiry must be in the future");
+
+    campaignIds.insert(disclose(campaignId));
+    campaigns.insert(disclose(campaignId), CampaignPublicState {
+        commitmentVersion: 1,
+        commitment: disclose(campaignCommitment),
+        merchantAuthorization: disclose(merchantAuthorizationCommitment),
+        expiry: disclose(expiry),
+        status: CampaignStatus.OPEN,
+        contributionCount: 0
+    });
+}
+
+export circuit contribute(
+    campaignId: Bytes<32>,
+    merchantPrivateIdentity: Bytes<32>,
+    minimumContribution: Uint<128>,
+    maximumContribution: Uint<128>,
+    acceptedTokenCount: Uint<8>,
+    acceptedTokenA: Bytes<32>,
+    acceptedTokenB: Bytes<32>,
+    acceptedTokenC: Bytes<32>,
+    acceptedTokenD: Bytes<32>,
+    campaignNonce: Bytes<32>,
+    campaignRandomness: Bytes<32>,
+    contributionSecret: Bytes<32>,
+    receiptSecret: Bytes<32>,
+    coin: ShieldedCoinInfo
+): [] {
+    assert(campaignIds.member(disclose(campaignId)), "campaign does not exist");
+    const campaign = campaigns.lookup(disclose(campaignId));
+    assert(campaign.status == CampaignStatus.OPEN, "campaign is not open");
+    assert(blockTimeLt(campaign.expiry), "campaign has expired");
+    assert(minimumContribution > 0, "minimum contribution must be positive");
+    assert(maximumContribution >= minimumContribution, "invalid contribution range");
+    assert(acceptedTokenCount >= 1 && acceptedTokenCount <= 4, "invalid token policy");
+
+    const expectedCommitment = deriveCampaignCommitment(
+        campaignId,
+        merchantPrivateIdentity,
+        minimumContribution,
+        maximumContribution,
+        acceptedTokenCount,
+        acceptedTokenA,
+        acceptedTokenB,
+        acceptedTokenC,
+        acceptedTokenD,
+        campaignNonce,
+        campaignRandomness,
+        campaign.expiry
+    );
+    assert(expectedCommitment == campaign.commitment, "invalid campaign opening");
+    assert(
+        coin.value >= minimumContribution && coin.value <= maximumContribution,
+        "contribution amount outside campaign range"
+    );
+
+    const tokenAllowed = coin.color == acceptedTokenA
+        || (acceptedTokenCount >= 2 && coin.color == acceptedTokenB)
+        || (acceptedTokenCount >= 3 && coin.color == acceptedTokenC)
+        || (acceptedTokenCount >= 4 && coin.color == acceptedTokenD);
+    assert(tokenAllowed, "token not accepted by campaign");
+
+    const nullifier = deriveContributionNullifier(campaignId, contributionSecret);
+    const contributionId = deriveContributionId(campaignId, nullifier);
+    assert(!contributionNullifiers.member(disclose(nullifier)), "contribution replay");
+    assert(!contributionIds.member(disclose(contributionId)), "contribution already exists");
+    assert(
+        campaign.contributionCount < 18446744073709551615,
+        "campaign contribution counter overflow"
+    );
+
+    receiveShielded(disclose(coin));
+    contributionNullifiers.insert(disclose(nullifier));
+    contributionIds.insert(disclose(contributionId));
+    contributions.insert(disclose(contributionId), ContributionPublicState {
+        campaignId: disclose(campaignId),
+        nullifier: disclose(nullifier),
+        escrowCoinCommitment: disclose(
+            deriveEscrowCoinCommitment(coin.nonce, coin.color, coin.value)
+        ),
+        receiptCommitment: disclose(
+            deriveContributionReceiptCommitment(
+                contributionId,
+                nullifier,
+                coin.value,
+                coin.color,
+                receiptSecret
+            )
+        ),
+        claimed: false
+    });
+    campaigns.insert(disclose(campaignId), CampaignPublicState {
+        commitmentVersion: campaign.commitmentVersion,
+        commitment: campaign.commitment,
+        merchantAuthorization: campaign.merchantAuthorization,
+        expiry: campaign.expiry,
+        status: campaign.status,
+        contributionCount: (campaign.contributionCount + 1) as Uint<64>
+    });
+}
+
+export circuit claimContribution(
+    contributionId: Bytes<32>,
+    merchantClaimSecret: Bytes<32>,
+    escrowCoin: QualifiedShieldedCoinInfo
+): ShieldedSendResult {
+    assert(contributionIds.member(disclose(contributionId)), "contribution does not exist");
+    const contribution = contributions.lookup(disclose(contributionId));
+    assert(!contribution.claimed, "contribution already claimed");
+    const campaign = campaigns.lookup(contribution.campaignId);
+    assert(
+        deriveMerchantAuthorization(merchantClaimSecret) == campaign.merchantAuthorization,
+        "unauthorized contribution claim"
+    );
+    assert(
+        deriveEscrowCoinCommitment(escrowCoin.nonce, escrowCoin.color, escrowCoin.value)
+            == contribution.escrowCoinCommitment,
+        "wrong contribution escrow coin"
+    );
+
+    const nullifier = deriveContributionClaimNullifier(contributionId, merchantClaimSecret);
+    assert(!claimNullifiers.member(disclose(nullifier)), "contribution claim replay");
+    claimNullifiers.insert(disclose(nullifier));
+    contributions.insert(disclose(contributionId), ContributionPublicState {
+        campaignId: contribution.campaignId,
+        nullifier: contribution.nullifier,
+        escrowCoinCommitment: contribution.escrowCoinCommitment,
+        receiptCommitment: contribution.receiptCommitment,
+        claimed: true
+    });
+
+    return sendShielded(
+        disclose(escrowCoin),
+        left<ZswapCoinPublicKey, ContractAddress>(ownPublicKey()),
+        disclose(escrowCoin.value)
+    );
+}
+
+export circuit cancelCampaign(campaignId: Bytes<32>, merchantClaimSecret: Bytes<32>): [] {
+    assert(campaignIds.member(disclose(campaignId)), "campaign does not exist");
+    const campaign = campaigns.lookup(disclose(campaignId));
+    assert(campaign.status == CampaignStatus.OPEN, "campaign is not open");
+    assert(
+        deriveMerchantAuthorization(merchantClaimSecret) == campaign.merchantAuthorization,
+        "unauthorized campaign cancellation"
+    );
+    campaigns.insert(disclose(campaignId), CampaignPublicState {
+        commitmentVersion: campaign.commitmentVersion,
+        commitment: campaign.commitment,
+        merchantAuthorization: campaign.merchantAuthorization,
+        expiry: campaign.expiry,
+        status: CampaignStatus.CANCELLED,
+        contributionCount: campaign.contributionCount
+    });
+}
+
+export circuit expireCampaign(campaignId: Bytes<32>): [] {
+    assert(campaignIds.member(disclose(campaignId)), "campaign does not exist");
+    const campaign = campaigns.lookup(disclose(campaignId));
+    assert(campaign.status == CampaignStatus.OPEN, "campaign is not open");
+    assert(blockTimeGte(campaign.expiry), "campaign has not expired");
+    campaigns.insert(disclose(campaignId), CampaignPublicState {
+        commitmentVersion: campaign.commitmentVersion,
+        commitment: campaign.commitment,
+        merchantAuthorization: campaign.merchantAuthorization,
+        expiry: campaign.expiry,
+        status: CampaignStatus.EXPIRED,
+        contributionCount: campaign.contributionCount
+    });
+}
+
+export pure circuit verifyContributionReceipt(
+    contributionId: Bytes<32>,
+    contributionNullifier: Bytes<32>,
+    amount: Uint<128>,
+    tokenId: Bytes<32>,
+    receiptSecret: Bytes<32>,
+    expectedReceiptCommitment: Bytes<32>
+): Boolean {
+    return deriveContributionReceiptCommitment(
+        contributionId,
+        contributionNullifier,
+        amount,
+        tokenId,
+        receiptSecret
+    ) == expectedReceiptCommitment;
+}
+
+export circuit proveContributionSettlement(
+    contributionId: Bytes<32>,
+    paidAmount: Uint<128>,
+    paidToken: Bytes<32>,
+    receiptSecret: Bytes<32>
+): [] {
+    assert(contributionIds.member(disclose(contributionId)), "contribution does not exist");
+    const contribution = contributions.lookup(disclose(contributionId));
+    assert(
+        deriveContributionReceiptCommitment(
+            contributionId,
+            contribution.nullifier,
+            paidAmount,
+            paidToken,
+            receiptSecret
+        ) == contribution.receiptCommitment,
+        "invalid contribution disclosure"
+    );
+}

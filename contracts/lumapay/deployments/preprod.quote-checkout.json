@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "product": "LumaPay",
+  "contractModule": "quote-checkout",
+  "network": "preprod",
+  "contractAddress": "b75d261021ec1b56b68ff7167e811f7fdd3bf97e17ae26fb1188a8cb7b2c886a",
+  "compactToolchain": "0.31.1",
+  "deployedAt": "2026-09-07T19:31:55.597Z"
+}

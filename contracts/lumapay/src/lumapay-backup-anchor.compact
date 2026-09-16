@@ -1,0 +1,101 @@
+pragma language_version 0.23;
+
+
+
+import CompactStandardLibrary;
+
+
+
+// Generated from lumapay.compact for the deployable backup-anchor module.
+
+export struct BackupAnchorPublicState {
+    formatVersion: Uint<16>;
+    authorization: Bytes<32>;
+    encryptedBlobDigest: Bytes<32>;
+}
+
+export ledger backupOwnerIds: Set<Bytes<32>>;
+export ledger backupAnchors: Map<Bytes<32>, BackupAnchorPublicState>;
+
+export pure circuit deriveBackupAuthorization(
+    ownerId: Bytes<32>,
+    backupSecret: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:backup-auth:v1"),
+        ownerId,
+        backupSecret
+    ]);
+}
+
+export circuit registerBackupAnchor(
+    ownerId: Bytes<32>,
+    backupAuthorizationCommitment: Bytes<32>,
+    encryptedBlobDigest: Bytes<32>
+): [] {
+    assert(ownerId != default<Bytes<32>>, "backup owner id is required");
+    assert(
+        backupAuthorizationCommitment != default<Bytes<32>>,
+        "backup authorization is required"
+    );
+    assert(encryptedBlobDigest != default<Bytes<32>>, "encrypted backup digest is required");
+    assert(!backupOwnerIds.member(disclose(ownerId)), "backup anchor already exists");
+    backupOwnerIds.insert(disclose(ownerId));
+    backupAnchors.insert(disclose(ownerId), BackupAnchorPublicState {
+        formatVersion: 1,
+        authorization: disclose(backupAuthorizationCommitment),
+        encryptedBlobDigest: disclose(encryptedBlobDigest)
+    });
+}
+
+export circuit updateBackupAnchor(
+    ownerId: Bytes<32>,
+    backupSecret: Bytes<32>,
+    encryptedBlobDigest: Bytes<32>
+): [] {
+    assert(backupOwnerIds.member(disclose(ownerId)), "backup anchor does not exist");
+    const anchor = backupAnchors.lookup(disclose(ownerId));
+    assert(
+        deriveBackupAuthorization(ownerId, backupSecret) == anchor.authorization,
+        "unauthorized backup update"
+    );
+    assert(encryptedBlobDigest != default<Bytes<32>>, "encrypted backup digest is required");
+    backupAnchors.insert(disclose(ownerId), BackupAnchorPublicState {
+        formatVersion: anchor.formatVersion,
+        authorization: anchor.authorization,
+        encryptedBlobDigest: disclose(encryptedBlobDigest)
+    });
+}
+
+export circuit rotateBackupAuthorization(
+    ownerId: Bytes<32>,
+    currentBackupSecret: Bytes<32>,
+    newBackupAuthorizationCommitment: Bytes<32>
+): [] {
+    assert(backupOwnerIds.member(disclose(ownerId)), "backup anchor does not exist");
+    const anchor = backupAnchors.lookup(disclose(ownerId));
+    assert(
+        deriveBackupAuthorization(ownerId, currentBackupSecret) == anchor.authorization,
+        "unauthorized backup rotation"
+    );
+    assert(
+        newBackupAuthorizationCommitment != default<Bytes<32>>,
+        "new backup authorization is required"
+    );
+    backupAnchors.insert(disclose(ownerId), BackupAnchorPublicState {
+        formatVersion: anchor.formatVersion,
+        authorization: disclose(newBackupAuthorizationCommitment),
+        encryptedBlobDigest: anchor.encryptedBlobDigest
+    });
+}
+
+export circuit deleteBackupAnchor(ownerId: Bytes<32>, backupSecret: Bytes<32>): [] {
+    assert(backupOwnerIds.member(disclose(ownerId)), "backup anchor does not exist");
+    const anchor = backupAnchors.lookup(disclose(ownerId));
+    assert(
+        deriveBackupAuthorization(ownerId, backupSecret) == anchor.authorization,
+        "unauthorized backup deletion"
+    );
+    backupOwnerIds.remove(disclose(ownerId));
+    backupAnchors.remove(disclose(ownerId));
+}

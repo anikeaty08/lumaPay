@@ -1,0 +1,61 @@
+# Render Blueprint for the LumaPay backend.
+# Deploy: https://dashboard.render.com/blueprints -> New Blueprint Instance -> this repo.
+# Any var marked `sync: false` must be filled in manually in the Render dashboard
+# after the first deploy (secrets, or values that depend on the Vercel frontend URL).
+services:
+  - type: web
+    name: lumapay-backend
+    runtime: node
+    rootDir: backend
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MIDNIGHT_NETWORK
+        value: preprod
+      - key: MIDNIGHT_NODE_URL
+        value: wss://rpc.preprod.midnight.network
+      - key: MIDNIGHT_INDEXER_URL
+        value: https://api-preprod.1am.xyz/api/v4/graphql
+      - key: MIDNIGHT_INDEXER_WS_URL
+        value: wss://api-preprod.1am.xyz/api/v4/graphql/ws
+      - key: LUMAPAY_INVOICE_CORE_CONTRACT_ADDRESS
+        value: 252404b3ad5a4f02071bb59d3631a86419cf6c6d1b995ccebe78399fe44000b2
+      - key: LUMAPAY_CAMPAIGNS_CONTRACT_ADDRESS
+        value: c7ecd023012aaa863f6c8150d55366aed88e2347f47affbb1c71ccdb5dfbd43a
+      - key: LUMAPAY_GIFT_CARDS_CONTRACT_ADDRESS
+        value: 5600a4fc947cc5f56f8c2c8540de86e744f74f01e7befd400f7fd7ce41097d37
+      - key: LUMAPAY_QUOTE_CHECKOUT_CONTRACT_ADDRESS
+        value: b75d261021ec1b56b68ff7167e811f7fdd3bf97e17ae26fb1188a8cb7b2c886a
+      - key: LUMAPAY_BACKUP_ANCHOR_CONTRACT_ADDRESS
+        value: 9b9879c4d0c3aa79ec6dbea8e6b1fe8b4c7391ad5cfa319eb7f0a34bd1e0b16d
+      - key: LUMAPAY_CARD_VAULT_CONTRACT_ADDRESS
+        value: ""
+      # Set this to the deployed Vercel URL once the frontend is live (e.g. https://lumapay.vercel.app).
+      - key: FRONTEND_URL
+        sync: false
+      # Comma-separated extra allowed CORS origins (e.g. Vercel preview URLs).
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_JWKS_URL
+        sync: false
+      # Exactly 32 bytes of hexadecimal. Generate with: openssl rand -hex 32
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: LUMAPAY_RECONCILER_ENABLED
+        value: "true"
+      - key: LUMAPAY_RECONCILIATION_INTERVAL_MS
+        value: "15000"
+      - key: LUMAPAY_AUTH_CHALLENGE_TTL_MS
+        value: "300000"
+      - key: LUMAPAY_AUTH_SESSION_TTL_MS
+        value: "43200000"

@@ -1,0 +1,7 @@
+.env
+node_modules
+__pycache__/
+*.pyc
+repomix-packed.xml
+.agent/interrupted-*/
+.agent/*.log

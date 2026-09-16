@@ -1,0 +1,72 @@
+{
+  "name": "@lumapay/frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "prepare:zk": "node scripts/copy-zk-artifacts.mjs",
+    "dev": "vite",
+    "build": "npm run prepare:zk && tsc && vite build",
+    "preview": "vite preview",
+    "check:legacy": "node scripts/check-no-legacy.mjs",
+    "test:ui": "node scripts/smoke-ui.mjs",
+    "verify": "npm run check:legacy && npm run build"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.2",
+    "autoprefixer": "^10.4.23",
+    "playwright-core": "^1.63.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.19",
+    "typescript": "~5.9.3",
+    "vite": "^7.2.4",
+    "vite-plugin-top-level-await": "^1.6.0",
+    "vite-plugin-wasm": "^3.6.0"
+  },
+  "dependencies": {
+    "@lumapay/contract": "file:../contracts/lumapay",
+    "@midnight-ntwrk/dapp-connector-api": "4.0.1",
+    "@midnight-ntwrk/ledger-v8": "^8.1.0",
+    "@midnight-ntwrk/midnight-js-contracts": "4.1.1",
+    "@midnight-ntwrk/midnight-js-dapp-connector-proof-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-fetch-zk-config-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-level-private-state-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-network-id": "4.1.1",
+    "@midnight-ntwrk/midnight-js-protocol": "4.1.1",
+    "@midnight-ntwrk/midnight-js-types": "4.1.1",
+    "@midnight-ntwrk/wallet-sdk-address-format": "^3.1.0",
+    "@supabase/supabase-js": "^2.57.4",
+    "@types/react": "^19.2.9",
+    "@types/react-dom": "^19.2.3",
+    "@yudiel/react-qr-scanner": "^2.6.0",
+    "assert": "^2.1.0",
+    "browser-level": "^3.0.0",
+    "buffer": "^6.0.3",
+    "cobe": "^0.6.5",
+    "events": "^3.3.0",
+    "framer-motion": "^12.27.5",
+    "jspdf": "^3.0.4",
+    "jspdf-autotable": "^5.0.8",
+    "libsodium-wrappers": "^0.7.16",
+    "lucide-react": "^0.577.0",
+    "qrcode.react": "^4.2.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-hot-toast": "^2.6.0",
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^7.18.3",
+    "recharts": "^3.10.1",
+    "remark-gfm": "^4.0.1",
+    "rxjs": "7.8.2",
+    "tailwind-merge": "^3.6.0"
+  },
+  "optionalDependencies": {
+    "@esbuild/linux-x64": "*",
+    "@rollup/rollup-linux-x64-gnu": "*"
+  },
+  "overrides": {
+    "@midnight-ntwrk/onchain-runtime-v3": "3.0.0"
+  }
+}

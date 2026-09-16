@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "product": "LumaPay",
+  "network": "preprod",
+  "contracts": {
+    "invoice-core": "252404b3ad5a4f02071bb59d3631a86419cf6c6d1b995ccebe78399fe44000b2",
+    "campaigns": "c7ecd023012aaa863f6c8150d55366aed88e2347f47affbb1c71ccdb5dfbd43a",
+    "gift-cards": "5600a4fc947cc5f56f8c2c8540de86e744f74f01e7befd400f7fd7ce41097d37",
+    "quote-checkout": "b75d261021ec1b56b68ff7167e811f7fdd3bf97e17ae26fb1188a8cb7b2c886a",
+    "backup-anchor": "9b9879c4d0c3aa79ec6dbea8e6b1fe8b4c7391ad5cfa319eb7f0a34bd1e0b16d"
+  },
+  "completedAt": "2026-09-07T19:35:48.630Z"
+}

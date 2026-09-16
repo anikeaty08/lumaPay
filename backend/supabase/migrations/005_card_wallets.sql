@@ -1,0 +1,30 @@
+create table if not exists card_wallets (
+  address_hash text primary key check (address_hash ~ '^[0-9a-f]{64}$'),
+  main_owner text,
+  card_id text unique check (card_id is null or card_id ~ '^[0-9a-f]{64}$'),
+  card_address text,
+  encrypted_card_number text,
+  card_number_hash text unique check (card_number_hash is null or card_number_hash ~ '^[0-9a-f]{64}$'),
+  card_metadata_digest text check (card_metadata_digest is null or card_metadata_digest ~ '^[0-9a-f]{64}$'),
+  card_owner_secret_ciphertext text,
+  card_owner_private_identity_ciphertext text,
+  card_vault_nonce_ciphertext text,
+  card_vault_randomness_ciphertext text,
+  card_vault_commitment text check (card_vault_commitment is null or card_vault_commitment ~ '^[0-9a-f]{64}$'),
+  card_creation_tx_id text check (card_creation_tx_id is null or card_creation_tx_id ~ '^[0-9a-f]{64}$'),
+  card_close_tx_id text check (card_close_tx_id is null or card_close_tx_id ~ '^[0-9a-f]{64}$'),
+  card_last4 text,
+  encrypted_card_private_key text,
+  card_kdf_salt text,
+  card_kdf_algorithm text,
+  card_kdf_params jsonb,
+  card_status text not null default 'ACTIVE' check (card_status in ('ACTIVE','CLOSED')),
+  card_label text,
+  card_hint text,
+  limits jsonb,
+  card_limits_updated_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists card_wallets_status_idx on card_wallets(card_status, updated_at);

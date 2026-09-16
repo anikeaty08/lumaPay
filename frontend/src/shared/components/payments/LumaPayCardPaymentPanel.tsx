@@ -1,0 +1,228 @@
+import { useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { X, CreditCard, Lock, Key, Eye, EyeOff } from 'lucide-react';
+import { CARD_PIN_LENGTH } from '../../utils/card/cardInputLimits';
+import { Button } from '../ui/Button';
+import { GlassInput } from '../ui/GlassInput';
+import { PaymentActivityConsole } from './PaymentActivityConsole';
+
+interface LumaPayCardPaymentPanelProps {
+    amountLabel: string;
+    cardNumber: string;
+    cardPin: string;
+    cardSecret: string;
+    isOpen: boolean;
+    isProcessing: boolean;
+    statusLog: string[];
+    error?: string | null;
+    compact?: boolean;
+    txId?: string | null;
+    onCardNumberChange: (value: string) => void;
+    onCardPinChange: (value: string) => void;
+    onCardSecretChange: (value: string) => void;
+    onOpenOverlay: () => void;
+    onCloseOverlay: () => void;
+    onSubmit: () => void;
+    submitDisabled: boolean;
+}
+
+const formatCardNumber = (value: string) => value.replace(/\D/g, '').slice(0, 16).replace(/(.{4})/g, '$1 ').trim();
+
+export const LumaPayCardPaymentPanel = ({
+    amountLabel,
+    cardNumber,
+    cardPin,
+    cardSecret,
+    isOpen,
+    isProcessing,
+    statusLog,
+    error,
+    compact = false,
+    txId,
+    onCardNumberChange,
+    onCardPinChange,
+    onCardSecretChange,
+    onOpenOverlay,
+    onCloseOverlay,
+    onSubmit,
+    submitDisabled
+}: LumaPayCardPaymentPanelProps) => {
+    const [showPin, setShowPin] = useState(false);
+    const [showSecret, setShowSecret] = useState(false);
+    const cardDigits = cardNumber.replace(/\D/g, '');
+    const canOpenOverlay = cardDigits.length === 16 && !isProcessing;
+    const hasLogs = statusLog.length > 0 || Boolean(error);
+
+    return (
+        <>
+            <div className="space-y-4 animate-fade-in">
+                <div className="space-y-2">
+                    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em] ml-1">Card Number</label>
+                    <GlassInput
+                        variant="bw"
+                        type="text"
+                        inputMode="numeric"
+                        value={cardNumber}
+                        onChange={(e) => onCardNumberChange(formatCardNumber(e.target.value))}
+                        placeholder="4123 4567 8910 1112"
+                        className={`text-center font-mono ${compact ? 'tracking-[0.18em] text-base h-12' : 'tracking-[0.22em]'}`}
+                        icon={<CreditCard className="h-4 w-4" />}
+                    />
+                </div>
+                <Button
+                    variant="bw"
+                    onClick={onOpenOverlay}
+                    disabled={!canOpenOverlay}
+                    className={`w-full ${compact ? 'h-12 text-base' : 'h-14 text-lg'} shadow-xl shadow-white/5`}
+                >
+                    Continue to Secure Entry
+                </Button>
+            </div>
+
+            <AnimatePresence>
+                {isOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                        <motion.button
+                            type="button"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="absolute inset-0 bg-black/90 backdrop-blur-md"
+                            onClick={() => {
+                                if (!isProcessing) onCloseOverlay();
+                            }}
+                        />
+
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.98, y: 10 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.98, y: 10 }}
+                            transition={{ duration: 0.25, ease: "easeOut" }}
+                            className={`relative z-10 w-full ${compact ? 'max-w-md' : 'max-w-xl'}`}
+                        >
+                            <div className="relative overflow-hidden rounded-[32px] border border-white/5 bg-[#050505] shadow-[0_40px_120px_rgba(0,0,0,1)]">
+                                {/* Subtle Monochrome Background Detail */}
+                                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.03),_transparent_40%)]" />
+                                
+                                <div className={`relative ${compact ? 'p-6' : 'p-8'}`}>
+                                    <div className="mb-8 flex items-center justify-between">
+                                        <div className="space-y-1">
+                                            <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-gray-500">
+                                                Zero-Knowledge Entry
+                                            </p>
+                                            <h3 className="text-2xl font-light tracking-tight text-white">
+                                                Identity <span className="font-bold">Verification</span>
+                                            </h3>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={onCloseOverlay}
+                                            disabled={isProcessing}
+                                            className="rounded-full border border-white/5 bg-white/5 p-2 text-gray-500 transition-all hover:border-white/20 hover:bg-white/10 hover:text-white disabled:opacity-20"
+                                        >
+                                            <X className="h-5 w-5" />
+                                        </button>
+                                    </div>
+
+                                    <div className="space-y-6">
+                                        <div className="grid gap-6">
+                                            <div className="space-y-2">
+                                                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest ml-1">Card PIN</label>
+                                                <div className="relative">
+                                                    <GlassInput
+                                                        variant="bw"
+                                                        type={showPin ? 'text' : 'password'}
+                                                        inputMode="numeric"
+                                                        maxLength={CARD_PIN_LENGTH}
+                                                        value={cardPin}
+                                                        onChange={(e) => onCardPinChange(e.target.value.replace(/\D/g, '').slice(0, CARD_PIN_LENGTH))}
+                                                        placeholder="••••••"
+                                                        className={`text-center tracking-[0.35em] pr-11 ${compact ? 'text-sm h-10' : 'h-11 text-sm'}`}
+                                                        icon={<Lock className="h-4 w-4" />}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowPin((current) => !current)}
+                                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 transition-colors hover:text-white"
+                                                    >
+                                                        {showPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest ml-1">Private Secret</label>
+                                                <div className="relative">
+                                                    <GlassInput
+                                                        variant="bw"
+                                                        type={showSecret ? 'text' : 'password'}
+                                                        value={cardSecret}
+                                                        onChange={(e) => onCardSecretChange(e.target.value)}
+                                                        placeholder="Card secret"
+                                                        className={`text-center pr-11 ${compact ? 'text-sm h-10' : 'h-11 text-sm'}`}
+                                                        icon={<Key className="h-4 w-4" />}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowSecret((current) => !current)}
+                                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 transition-colors hover:text-white"
+                                                    >
+                                                        {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {error && !hasLogs && (
+                                            <motion.div 
+                                                initial={{ opacity: 0, y: -4 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-gray-300 flex items-center gap-3"
+                                            >
+                                                <div className="h-1 w-1 rounded-full bg-white animate-pulse" />
+                                                {error}
+                                            </motion.div>
+                                        )}
+
+                                        {txId ? (
+                                            <div className={`w-full ${compact ? 'h-14' : 'h-16'} rounded-xl bg-white/[0.05] border border-white/[0.1] flex items-center justify-center gap-3 text-white font-medium ${compact ? 'text-lg' : 'text-xl'}`}>
+                                                <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                                                <span>Waiting for network...</span>
+                                            </div>
+                                        ) : (
+                                            <Button
+                                                variant="bw"
+                                                onClick={onSubmit}
+                                                disabled={isProcessing || submitDisabled}
+                                                className={`w-full ${compact ? 'h-14 text-lg' : 'h-16 text-xl font-bold'} shadow-2xl shadow-white/5 mt-2`}
+                                            >
+                                                {isProcessing && !txId ? (
+                                                    <div className="flex items-center justify-center gap-3">
+                                                        <div className="h-5 w-5 animate-spin rounded-full border-2 border-black/20 border-t-black" />
+                                                        <span className="font-bold">Authorizing...</span>
+                                                    </div>
+                                                ) : (
+                                                    `Complete ${amountLabel} Payment`
+                                                )}
+                                            </Button>
+                                        )}
+                                    </div>
+
+                                    {hasLogs && (
+                                        <div className="mt-8 pt-8 border-t border-white/5">
+                                            <PaymentActivityConsole
+                                                method="card"
+                                                statusLog={statusLog}
+                                                error={error}
+                                                compact={compact}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+        </>
+    );
+};

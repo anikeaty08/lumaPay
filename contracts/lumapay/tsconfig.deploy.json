@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "src/index.ts",
+    "src/managed/lumapay/contract/index.js",
+    "src/managed/lumapay-core/contract/index.js",
+    "deploy/**/*.ts",
+    "scripts/**/*.ts"
+  ],
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": false
+  }
+}

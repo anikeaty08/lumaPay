@@ -1,0 +1,237 @@
+pragma language_version 0.23;
+
+import CompactStandardLibrary;
+
+export enum CardVaultStatus { ACTIVE, CLOSED }
+
+export struct CardVaultPublicState {
+    commitmentVersion: Uint<16>;
+    commitment: Bytes<32>;
+    ownerAuthorization: Bytes<32>;
+    cardNumberHash: Bytes<32>;
+    metadataDigest: Bytes<32>;
+    dailyLimit: Uint<128>;
+    spentEpochDay: Uint<64>;
+    spentAmount: Uint<128>;
+    status: CardVaultStatus;
+}
+
+export struct CardSpendPublicState {
+    cardId: Bytes<32>;
+    paymentId: Bytes<32>;
+    tokenId: Bytes<32>;
+    amount: Uint<128>;
+    epochDay: Uint<64>;
+}
+
+export ledger cardVaultIds: Set<Bytes<32>>;
+export ledger cardVaults: Map<Bytes<32>, CardVaultPublicState>;
+export ledger cardSpendIds: Set<Bytes<32>>;
+export ledger cardSpends: Map<Bytes<32>, CardSpendPublicState>;
+export ledger cardSpendNullifiers: Set<Bytes<32>>;
+
+export pure circuit deriveCardOwnerAuthorization(ownerSecret: Bytes<32>): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:card-owner:v1"),
+        ownerSecret
+    ]);
+}
+
+export pure circuit deriveCardVaultCommitment(
+    cardId: Bytes<32>,
+    ownerPrivateIdentity: Bytes<32>,
+    cardNumberHash: Bytes<32>,
+    metadataDigest: Bytes<32>,
+    dailyLimit: Uint<128>,
+    vaultNonce: Bytes<32>,
+    vaultRandomness: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[
+        Bytes<32>, Uint<16>, Bytes<32>, Bytes<32>, Bytes<32>, Bytes<32>,
+        Uint<128>, Bytes<32>, Bytes<32>
+    ]>([
+        pad(32, "lumapay:card-vault-commitment:v1"),
+        1,
+        cardId,
+        ownerPrivateIdentity,
+        cardNumberHash,
+        metadataDigest,
+        dailyLimit,
+        vaultNonce,
+        vaultRandomness
+    ]);
+}
+
+export pure circuit deriveCardSpendNullifier(
+    cardId: Bytes<32>,
+    paymentId: Bytes<32>,
+    spendSecret: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:card-spend:v1"),
+        cardId,
+        paymentId,
+        spendSecret
+    ]);
+}
+
+export circuit createCardVault(
+    cardId: Bytes<32>,
+    commitment: Bytes<32>,
+    ownerAuthorization: Bytes<32>,
+    cardNumberHash: Bytes<32>,
+    metadataDigest: Bytes<32>,
+    dailyLimit: Uint<128>
+): [] {
+    assert(cardId != default<Bytes<32>>, "card id is required");
+    assert(commitment != default<Bytes<32>>, "card commitment is required");
+    assert(ownerAuthorization != default<Bytes<32>>, "card owner authorization is required");
+    assert(cardNumberHash != default<Bytes<32>>, "card number hash is required");
+    assert(!cardVaultIds.member(disclose(cardId)), "card vault already exists");
+
+    cardVaultIds.insert(disclose(cardId));
+    cardVaults.insert(disclose(cardId), CardVaultPublicState {
+        commitmentVersion: 1,
+        commitment: disclose(commitment),
+        ownerAuthorization: disclose(ownerAuthorization),
+        cardNumberHash: disclose(cardNumberHash),
+        metadataDigest: disclose(metadataDigest),
+        dailyLimit: disclose(dailyLimit),
+        spentEpochDay: 0,
+        spentAmount: 0,
+        status: CardVaultStatus.ACTIVE
+    });
+}
+
+export circuit updateCardMetadata(
+    cardId: Bytes<32>,
+    ownerSecret: Bytes<32>,
+    metadataDigest: Bytes<32>
+): [] {
+    assert(cardVaultIds.member(disclose(cardId)), "card vault does not exist");
+    const vault = cardVaults.lookup(disclose(cardId));
+    assert(vault.status == CardVaultStatus.ACTIVE, "card vault is not active");
+    assert(
+        deriveCardOwnerAuthorization(ownerSecret) == vault.ownerAuthorization,
+        "unauthorized card metadata update"
+    );
+
+    cardVaults.insert(disclose(cardId), CardVaultPublicState {
+        commitmentVersion: vault.commitmentVersion,
+        commitment: vault.commitment,
+        ownerAuthorization: vault.ownerAuthorization,
+        cardNumberHash: vault.cardNumberHash,
+        metadataDigest: disclose(metadataDigest),
+        dailyLimit: vault.dailyLimit,
+        spentEpochDay: vault.spentEpochDay,
+        spentAmount: vault.spentAmount,
+        status: vault.status
+    });
+}
+
+export circuit setCardDailyLimit(
+    cardId: Bytes<32>,
+    ownerSecret: Bytes<32>,
+    dailyLimit: Uint<128>
+): [] {
+    assert(cardVaultIds.member(disclose(cardId)), "card vault does not exist");
+    const vault = cardVaults.lookup(disclose(cardId));
+    assert(vault.status == CardVaultStatus.ACTIVE, "card vault is not active");
+    assert(
+        deriveCardOwnerAuthorization(ownerSecret) == vault.ownerAuthorization,
+        "unauthorized card limit update"
+    );
+
+    cardVaults.insert(disclose(cardId), CardVaultPublicState {
+        commitmentVersion: vault.commitmentVersion,
+        commitment: vault.commitment,
+        ownerAuthorization: vault.ownerAuthorization,
+        cardNumberHash: vault.cardNumberHash,
+        metadataDigest: vault.metadataDigest,
+        dailyLimit: disclose(dailyLimit),
+        spentEpochDay: vault.spentEpochDay,
+        spentAmount: vault.spentAmount,
+        status: vault.status
+    });
+}
+
+export circuit recordCardSpend(
+    cardId: Bytes<32>,
+    ownerPrivateIdentity: Bytes<32>,
+    cardNumberHash: Bytes<32>,
+    metadataDigest: Bytes<32>,
+    dailyLimitAtCreation: Uint<128>,
+    vaultNonce: Bytes<32>,
+    vaultRandomness: Bytes<32>,
+    paymentId: Bytes<32>,
+    spendSecret: Bytes<32>,
+    tokenId: Bytes<32>,
+    amount: Uint<128>,
+    epochDay: Uint<64>
+): [] {
+    assert(cardVaultIds.member(disclose(cardId)), "card vault does not exist");
+    const vault = cardVaults.lookup(disclose(cardId));
+    assert(vault.status == CardVaultStatus.ACTIVE, "card vault is not active");
+    assert(amount > 0, "card spend amount must be positive");
+    assert(cardNumberHash == vault.cardNumberHash, "wrong card number hash");
+    assert(
+        deriveCardVaultCommitment(
+            cardId,
+            ownerPrivateIdentity,
+            cardNumberHash,
+            metadataDigest,
+            dailyLimitAtCreation,
+            vaultNonce,
+            vaultRandomness
+        ) == vault.commitment,
+        "invalid card vault opening"
+    );
+
+    const spendNullifier = deriveCardSpendNullifier(cardId, paymentId, spendSecret);
+    assert(!cardSpendNullifiers.member(disclose(spendNullifier)), "card spend replay");
+    assert(epochDay >= vault.spentEpochDay, "card spend epoch moved backwards");
+    assert(amount <= vault.dailyLimit, "card spend limit exceeded");
+
+    cardSpendNullifiers.insert(disclose(spendNullifier));
+    cardSpendIds.insert(disclose(spendNullifier));
+    cardSpends.insert(disclose(spendNullifier), CardSpendPublicState {
+        cardId: disclose(cardId),
+        paymentId: disclose(paymentId),
+        tokenId: disclose(tokenId),
+        amount: disclose(amount),
+        epochDay: disclose(epochDay)
+    });
+    cardVaults.insert(disclose(cardId), CardVaultPublicState {
+        commitmentVersion: vault.commitmentVersion,
+        commitment: vault.commitment,
+        ownerAuthorization: vault.ownerAuthorization,
+        cardNumberHash: vault.cardNumberHash,
+        metadataDigest: vault.metadataDigest,
+        dailyLimit: vault.dailyLimit,
+        spentEpochDay: disclose(epochDay),
+        spentAmount: disclose(amount),
+        status: vault.status
+    });
+}
+
+export circuit closeCardVault(cardId: Bytes<32>, ownerSecret: Bytes<32>): [] {
+    assert(cardVaultIds.member(disclose(cardId)), "card vault does not exist");
+    const vault = cardVaults.lookup(disclose(cardId));
+    assert(vault.status == CardVaultStatus.ACTIVE, "card vault is not active");
+    assert(
+        deriveCardOwnerAuthorization(ownerSecret) == vault.ownerAuthorization,
+        "unauthorized card close"
+    );
+
+    cardVaults.insert(disclose(cardId), CardVaultPublicState {
+        commitmentVersion: vault.commitmentVersion,
+        commitment: vault.commitment,
+        ownerAuthorization: vault.ownerAuthorization,
+        cardNumberHash: vault.cardNumberHash,
+        metadataDigest: vault.metadataDigest,
+        dailyLimit: vault.dailyLimit,
+        spentEpochDay: vault.spentEpochDay,
+        spentAmount: vault.spentAmount,
+        status: CardVaultStatus.CLOSED
+    });
+}

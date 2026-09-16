@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "product": "LumaPay",
+  "updated_at": "2026-09-09",
+  "features": [
+    {
+      "id": "contracts-suite",
+      "category": "contracts",
+      "description": "The six-module Compact suite implements invoices, campaigns, gift cards, quote checkout, backup anchors, and card vaults.",
+      "priority": 1,
+      "dependencies": [],
+      "acceptance_steps": ["Compile all Compact modules", "Type-check generated bindings and deployment scripts", "Run contract lifecycle and invariant tests"],
+      "status": "passing",
+      "evidence": ["2026-09-08: npm test passed 25/25 contract tests across seven suites.", "Generated prover and verifier artifacts exist for every tested circuit, including card-vault."]
+    },
+    {
+      "id": "preprod-deployment",
+      "category": "deployment",
+      "description": "All required contract modules are deployed and indexed on Midnight Preprod.",
+      "priority": 1,
+      "dependencies": ["contracts-suite"],
+      "acceptance_steps": ["Deploy each module", "Verify every returned contract ID through the Preprod indexer", "Commit a secret-free deployment manifest"],
+      "status": "in_progress",
+      "evidence": ["contracts/lumapay/deployments/preprod-suite.json contains five contract IDs and completedAt 2026-09-07T19:35:48.630Z.", "preprod-smoke.json records indexed invoice 03c326...1463b in OPEN state from transaction 00ea60...b3d506.", "card-vault deployment is running but has not produced contracts/lumapay/deployments/preprod.card-vault.json yet."]
+    },
+    {
+      "id": "wallet-auth-ui",
+      "category": "full-stack",
+      "description": "Users connect a Midnight DApp Connector wallet and authenticate through an origin-bound signed challenge without exposing keys.",
+      "priority": 1,
+      "dependencies": ["preprod-deployment"],
+      "acceptance_steps": ["Discover installed Connector 4.x wallets", "Connect and display wallet/network/DUST state", "Verify a single-use signed backend challenge", "Exercise desktop and mobile UI states"],
+      "status": "passing",
+      "evidence": ["2026-09-08: backend wallet-auth tests passed, including replay, origin, and wrong-wallet rejection.", "2026-09-08: frontend production build and responsive wallet UI smoke passed."]
+    },
+    {
+      "id": "invoice-direct-flow",
+      "category": "full-stack",
+      "description": "Merchants create committed private invoices and payers settle direct links through Invoice Core.",
+      "priority": 1,
+      "dependencies": ["wallet-auth-ui"],
+      "acceptance_steps": ["Create an invoice from the preserved form", "Open the generated payment link", "Read and validate canonical chain state", "Submit a shielded payment", "Persist payer receipt recovery", "Claim, cancel, and expire from merchant UI"],
+      "status": "in_progress",
+      "evidence": ["Create and pay adapters use Invoice Core.", "Real Preprod create/read smoke is recorded.", "Merchant claim/cancel/expire UI paths and real payment lifecycle still need end-to-end proof."]
+    },
+    {
+      "id": "campaign-flow",
+      "category": "full-stack",
+      "description": "Multi-pay and donation campaigns support creation, contribution, proof, claim, cancellation, and expiry.",
+      "priority": 2,
+      "dependencies": ["wallet-auth-ui"],
+      "acceptance_steps": ["Create campaign", "Accept multiple contributions", "Show indexed totals and receipts", "Claim each escrow coin", "Exercise cancel/expire behavior"],
+      "status": "in_progress",
+      "evidence": ["Contract tests cover full campaign lifecycle.", "Frontend create/contribute adapters exist and the reusable profile QR now creates a Campaigns opening instead of a compatibility invoice.", "2026-09-08: backend campaign registry, contribution registration, commitment-verified claim material, merchant campaign listing, frontend campaign contribution registration, and dashboard cancel/expire/claim adapters build and pass backend/frontend checks.", "A real wallet-approved campaign contribution and merchant claim still need Preprod verification before this feature can be marked passing."]
+    },
+    {
+      "id": "gift-card-flow",
+      "category": "full-stack",
+      "description": "Issuers create private gift-card escrows and recipients redeem a valid code once.",
+      "priority": 2,
+      "dependencies": ["wallet-auth-ui"],
+      "acceptance_steps": ["Create one or more token gift cards", "Share a LUMA code without issuer recovery secret leakage", "Read status", "Redeem full balance", "Recover an expired card as issuer"],
+      "status": "in_progress",
+      "evidence": ["Compact tests pass create/redeem/reclaim cases.", "Frontend Midnight create/redeem adapter exists; real Preprod redeem and issuer reclaim UI remain unverified."]
+    },
+    {
+      "id": "hosted-checkout",
+      "category": "full-stack",
+      "description": "API-created hosted checkout sessions resolve to payer-safe committed terms and settle through Midnight contracts.",
+      "priority": 1,
+      "dependencies": ["invoice-direct-flow"],
+      "acceptance_steps": ["Create authenticated checkout session", "Open /checkout/:id without merchant credentials", "Validate expiry and terms", "Pay through the appropriate deployed module", "Reconcile status idempotently"],
+      "status": "in_progress",
+      "evidence": ["2026-09-08: backend exposes payer-safe create/read/reconcile routes and verify passes 12/12, including non-payable invoice rejection.", "2026-09-08: the frontend checkout hook uses Invoice Core directly, stores payer recovery locally, reconciles through the backend, builds successfully, and its preserved checkout surface passes browser smoke.", "A real wallet-approved hosted payment on Preprod is still required before this feature can be marked passing."]
+    },
+    {
+      "id": "quote-conversion",
+      "category": "full-stack",
+      "description": "Authorized quotes enable exact cross-token checkout with replay and expiry protection.",
+      "priority": 2,
+      "dependencies": ["hosted-checkout"],
+      "acceptance_steps": ["Register/rotate/remove quote provider", "Register an exact quote", "Pay once with quoted token", "Reject altered, expired, or replayed quote"],
+      "status": "in_progress",
+      "evidence": ["Quote Checkout contract tests pass.", "Production frontend/backend quote-provider and quoted-payment wiring remains incomplete."]
+    },
+    {
+      "id": "merchant-dashboard-lifecycle",
+      "category": "frontend",
+      "description": "Dashboard, invoice details, QR, history, receipts, analytics, and lifecycle actions use indexed Midnight state and metadata caches.",
+      "priority": 2,
+      "dependencies": ["invoice-direct-flow", "campaign-flow"],
+      "acceptance_steps": ["Load owned invoices and payments", "Show canonical statuses and receipts", "Perform supported lifecycle actions", "Generate QR links", "Reload without synthetic record APIs"],
+      "status": "in_progress",
+      "evidence": ["2026-09-08: authenticated merchant invoice listing, dashboard aggregation, committed payment-link reconstruction, Invoice Core cancel/expire/claim adapters, and chain receipt verification compile and pass the production build.", "2026-09-08: profile QR uses Campaigns and payment monitoring polls authenticated canonical state.", "2026-09-08: campaign list/history and dashboard campaign cancel/expire/claim adapters now route through backend-verified Campaigns state.", "Several secondary dashboard components still require Midnight migration; real claim/cancel/expire UI execution remains unverified on Preprod."]
+    },
+    {
+      "id": "card-wallet",
+      "category": "full-stack",
+      "description": "The preserved LumaPay Card feature uses a Midnight-native private balance, local PIN/secret protection, limits, top-up, payment, transfer, and deletion lifecycle.",
+      "priority": 3,
+      "dependencies": ["contracts-suite"],
+      "acceptance_steps": ["Define and review Midnight card-vault contract boundary", "Deploy and index required contract", "Migrate provider and payment UI", "Test top-up, pay, limits, transfer-all, and delete"],
+      "status": "in_progress",
+      "evidence": ["2026-09-08: `lumapay-card-vault.compact` compiles, is included in managed artifact/build/deploy scripts, and has create/update/spend/replay/limit/close tests.", "2026-09-08: CardWalletProvider now uses the Midnight card-vault adapter for create, NIGHT limit update, and close/delete; backend exposes authenticated `/api/v1/cards` mirror routes with Supabase migration `005_card_wallets.sql`.", "Card-vault is not deployed to Preprod yet, and native private-transfer support for top-up, sweep, and card payment remains incomplete."]
+    },
+    {
+      "id": "burner-privacy-wallet",
+      "category": "full-stack",
+      "description": "The privacy-wallet feature creates local ephemeral key material, anchors encrypted backup integrity, scans owned state, and sweeps funds using Midnight primitives.",
+      "priority": 3,
+      "dependencies": ["contracts-suite"],
+      "acceptance_steps": ["Create and encrypt local recovery material", "Anchor only its digest", "Restore and verify the anchor", "Sweep shielded funds safely", "Delete local/anchor state"],
+      "status": "in_progress",
+      "evidence": ["Backup Anchor contract passes tests.", "2026-09-09: frontend privacy-wallet generation now uses the connected Midnight wallet shielded address and no longer imports compatibility execution code.", "2026-09-09: scanner, invoice deletion, backup, and sweep paths fail closed until a native Midnight burner spend/restore adapter is available; no old execution shim is presented as a working Preprod path."]
+    },
+    {
+      "id": "batch-pay",
+      "category": "frontend",
+      "description": "Users can validate and execute multiple independent Midnight payments with per-item atomicity and clear partial-failure reporting.",
+      "priority": 3,
+      "dependencies": ["invoice-direct-flow", "burner-privacy-wallet"],
+      "acceptance_steps": ["Parse and validate multiple openings", "Preview totals", "Execute each item safely", "Report per-item transaction and failure state", "Retry only failed items"],
+      "status": "in_progress",
+      "evidence": ["Contract tests establish per-invoice atomic validation.", "2026-09-09: BatchPay validates LumaPay openings, exposes NIGHT-only Preprod execution, and calls the connected Midnight wallet through the native transfer adapter.", "Real wallet-approved multi-payment execution and partial-failure recovery still need browser-wallet Preprod verification."]
+    },
+    {
+      "id": "audit-selective-disclosure",
+      "category": "full-stack",
+      "description": "Merchants export signed audit packages and auditors verify only disclosed claims and chain references.",
+      "priority": 3,
+      "dependencies": ["merchant-dashboard-lifecycle"],
+      "acceptance_steps": ["Create signed disclosure package", "Verify signature/address binding", "Verify referenced on-chain settlement proof", "Reject altered package", "Export readable evidence"],
+      "status": "in_progress",
+      "evidence": ["Audit package signatures now use Midnight ledger verification.", "2026-09-09: former explorer URLs were removed from audit, reports, profile tables, payment notes, developer dashboard, and mobile payment surfaces.", "Real referenced settlement-proof verification still needs wallet-approved Preprod payment/claim evidence."]
+    },
+    {
+      "id": "developer-mcp-telegram",
+      "category": "integrations",
+      "description": "Developer API/SDK examples, MCP server, OpenClaw guidance, and Telegram companion use current backend contracts and wallet handoff boundaries.",
+      "priority": 4,
+      "dependencies": ["hosted-checkout", "merchant-dashboard-lifecycle"],
+      "acceptance_steps": ["Run documented MCP tools", "Create and inspect an invoice through API/MCP", "Verify Telegram wallet-link handoff", "Ensure no server-side user signing", "Validate every published example"],
+      "status": "in_progress",
+      "evidence": ["MCP documentation exists.", "2026-09-09: developer docs and Telegram visible flows were reconciled to NIGHT-only Preprod wallet-handoff behavior and no server-side user signing.", "Documented MCP tools still need a real run against the deployed backend before this can be marked passing."]
+    },
+    {
+      "id": "documentation-assets-env",
+      "category": "documentation",
+      "description": "Rich README, component docs, environment templates, contract addresses, MCP filenames, and architecture images accurately describe LumaPay on Midnight.",
+      "priority": 2,
+      "dependencies": ["preprod-deployment"],
+      "acceptance_steps": ["Publish rich root README", "Synchronize all addresses and endpoints", "Verify every command and link", "Replace architecture/brand assets", "Remove misleading claims"],
+      "status": "in_progress",
+      "evidence": ["The rich root README now documents product scope, privacy boundaries, architecture, deployed contract IDs, setup, API routes, migrations, tests, and honest implementation status.", "New LumaPay architecture and brand assets exist.", "2026-09-09: package README, frontend/deployment docs, and environment examples are aligned with the six-contract suite; Card Vault address remains blank until deployment completes."]
+    },
+    {
+      "id": "zero-legacy-surface",
+      "category": "migration",
+      "description": "No former-chain code, URLs, dependencies, artifacts, names, or compatibility shims remain in shipped source or documentation.",
+      "priority": 1,
+      "dependencies": ["hosted-checkout", "merchant-dashboard-lifecycle", "card-wallet", "burner-privacy-wallet", "batch-pay", "audit-selective-disclosure"],
+      "acceptance_steps": ["Run repository-wide guarded search", "Inspect lockfiles and generated bundles", "Delete compatibility modules and unused artifacts", "Build all packages", "Exercise all routes"],
+      "status": "in_progress",
+      "evidence": ["2026-09-09: backend guard passes.", "2026-09-09: frontend guarded shipped-source legacy scan passes.", "2026-09-09: targeted source grep found no former explorer URLs, old execution dependencies, or visible stablecoin references in the checked live/docs/backend surfaces.", "A full repository-wide generated-artifact and lockfile cleanup remains incomplete."]
+    }
+  ]
+}

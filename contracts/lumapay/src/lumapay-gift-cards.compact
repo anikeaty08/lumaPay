@@ -1,0 +1,229 @@
+pragma language_version 0.23;
+
+
+
+import CompactStandardLibrary;
+
+
+
+// Generated from lumapay.compact for the deployable gift-cards module.
+
+export enum GiftCardStatus { OPEN, REDEEMED, RECLAIMED }
+
+export struct GiftCardPublicState {
+    commitmentVersion: Uint<16>;
+    commitment: Bytes<32>;
+    issuerAuthorization: Bytes<32>;
+    expiry: Uint<64>;
+    escrowCoinCommitment: Bytes<32>;
+    redemptionNullifier: Bytes<32>;
+    status: GiftCardStatus;
+}
+
+export ledger giftCardIds: Set<Bytes<32>>;
+export ledger giftCards: Map<Bytes<32>, GiftCardPublicState>;
+export ledger giftCardNullifiers: Set<Bytes<32>>;
+
+export pure circuit deriveEscrowCoinCommitment(
+    nonce: Bytes<32>,
+    color: Bytes<32>,
+    value: Uint<128>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>, Uint<128>]>([
+        pad(32, "lumapay:escrow-coin:v1"),
+        nonce,
+        color,
+        value
+    ]);
+}
+
+export pure circuit deriveGiftCardCommitment(
+    giftCardId: Bytes<32>,
+    amount: Uint<128>,
+    tokenId: Bytes<32>,
+    giftSecret: Bytes<32>,
+    randomness: Bytes<32>,
+    expiry: Uint<64>
+): Bytes<32> {
+    return persistentHash<[
+        Bytes<32>, Uint<16>, Bytes<32>, Uint<128>, Bytes<32>, Bytes<32>,
+        Bytes<32>, Uint<64>
+    ]>([
+        pad(32, "lumapay:gift-card-commitment:v1"),
+        1,
+        giftCardId,
+        amount,
+        tokenId,
+        giftSecret,
+        randomness,
+        expiry
+    ]);
+}
+
+export pure circuit deriveGiftCardIssuerAuthorization(
+    giftCardId: Bytes<32>,
+    issuerSecret: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:gift-card-issuer:v1"),
+        giftCardId,
+        issuerSecret
+    ]);
+}
+
+export pure circuit deriveGiftCardRedemptionNullifier(
+    giftCardId: Bytes<32>,
+    giftSecret: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:gift-card-redeem:v1"),
+        giftCardId,
+        giftSecret
+    ]);
+}
+
+export pure circuit deriveGiftCardReclaimNullifier(
+    giftCardId: Bytes<32>,
+    issuerSecret: Bytes<32>
+): Bytes<32> {
+    return persistentHash<[Bytes<32>, Bytes<32>, Bytes<32>]>([
+        pad(32, "lumapay:gift-card-reclaim:v1"),
+        giftCardId,
+        issuerSecret
+    ]);
+}
+
+export circuit createGiftCard(
+    giftCardId: Bytes<32>,
+    amount: Uint<128>,
+    tokenId: Bytes<32>,
+    giftSecret: Bytes<32>,
+    giftRandomness: Bytes<32>,
+    issuerAuthorizationCommitment: Bytes<32>,
+    expiry: Uint<64>,
+    coin: ShieldedCoinInfo
+): [] {
+    assert(giftCardId != default<Bytes<32>>, "gift card id is required");
+    assert(!giftCardIds.member(disclose(giftCardId)), "gift card already exists");
+    assert(amount > 0, "gift card amount must be positive");
+    assert(blockTimeLt(disclose(expiry)), "expiry must be in the future");
+    assert(
+        issuerAuthorizationCommitment != default<Bytes<32>>,
+        "gift card issuer authorization is required"
+    );
+    assert(coin.value == amount, "wrong gift card amount");
+    assert(coin.color == tokenId, "wrong gift card token");
+
+    const commitment = deriveGiftCardCommitment(
+        giftCardId,
+        amount,
+        tokenId,
+        giftSecret,
+        giftRandomness,
+        expiry
+    );
+    receiveShielded(disclose(coin));
+    giftCardIds.insert(disclose(giftCardId));
+    giftCards.insert(disclose(giftCardId), GiftCardPublicState {
+        commitmentVersion: 1,
+        commitment: disclose(commitment),
+        issuerAuthorization: disclose(issuerAuthorizationCommitment),
+        expiry: disclose(expiry),
+        escrowCoinCommitment: disclose(
+            deriveEscrowCoinCommitment(coin.nonce, coin.color, coin.value)
+        ),
+        redemptionNullifier: default<Bytes<32>>,
+        status: GiftCardStatus.OPEN
+    });
+}
+
+export circuit redeemGiftCard(
+    giftCardId: Bytes<32>,
+    amount: Uint<128>,
+    tokenId: Bytes<32>,
+    giftSecret: Bytes<32>,
+    giftRandomness: Bytes<32>,
+    escrowCoin: QualifiedShieldedCoinInfo
+): ShieldedSendResult {
+    assert(giftCardIds.member(disclose(giftCardId)), "gift card does not exist");
+    const giftCard = giftCards.lookup(disclose(giftCardId));
+    assert(giftCard.status == GiftCardStatus.OPEN, "gift card is not open");
+    assert(blockTimeLt(giftCard.expiry), "gift card has expired");
+    assert(
+        deriveGiftCardCommitment(
+            giftCardId,
+            amount,
+            tokenId,
+            giftSecret,
+            giftRandomness,
+            giftCard.expiry
+        ) == giftCard.commitment,
+        "invalid gift card opening"
+    );
+    assert(amount > 0, "gift card amount must be positive");
+    assert(escrowCoin.value == amount, "wrong gift card escrow amount");
+    assert(escrowCoin.color == tokenId, "wrong gift card escrow token");
+    assert(
+        deriveEscrowCoinCommitment(escrowCoin.nonce, escrowCoin.color, escrowCoin.value)
+            == giftCard.escrowCoinCommitment,
+        "wrong gift card escrow coin"
+    );
+
+    const nullifier = deriveGiftCardRedemptionNullifier(giftCardId, giftSecret);
+    assert(!giftCardNullifiers.member(disclose(nullifier)), "gift card replay");
+    giftCardNullifiers.insert(disclose(nullifier));
+    giftCards.insert(disclose(giftCardId), GiftCardPublicState {
+        commitmentVersion: giftCard.commitmentVersion,
+        commitment: giftCard.commitment,
+        issuerAuthorization: giftCard.issuerAuthorization,
+        expiry: giftCard.expiry,
+        escrowCoinCommitment: giftCard.escrowCoinCommitment,
+        redemptionNullifier: disclose(nullifier),
+        status: GiftCardStatus.REDEEMED
+    });
+
+    return sendShielded(
+        disclose(escrowCoin),
+        left<ZswapCoinPublicKey, ContractAddress>(ownPublicKey()),
+        disclose(escrowCoin.value)
+    );
+}
+
+export circuit reclaimExpiredGiftCard(
+    giftCardId: Bytes<32>,
+    issuerSecret: Bytes<32>,
+    escrowCoin: QualifiedShieldedCoinInfo
+): ShieldedSendResult {
+    assert(giftCardIds.member(disclose(giftCardId)), "gift card does not exist");
+    const giftCard = giftCards.lookup(disclose(giftCardId));
+    assert(giftCard.status == GiftCardStatus.OPEN, "gift card is not open");
+    assert(blockTimeGte(giftCard.expiry), "gift card has not expired");
+    assert(
+        deriveGiftCardIssuerAuthorization(giftCardId, issuerSecret) == giftCard.issuerAuthorization,
+        "unauthorized gift card reclaim"
+    );
+    assert(
+        deriveEscrowCoinCommitment(escrowCoin.nonce, escrowCoin.color, escrowCoin.value)
+            == giftCard.escrowCoinCommitment,
+        "wrong gift card escrow coin"
+    );
+
+    const nullifier = deriveGiftCardReclaimNullifier(giftCardId, issuerSecret);
+    assert(!giftCardNullifiers.member(disclose(nullifier)), "gift card reclaim replay");
+    giftCardNullifiers.insert(disclose(nullifier));
+    giftCards.insert(disclose(giftCardId), GiftCardPublicState {
+        commitmentVersion: giftCard.commitmentVersion,
+        commitment: giftCard.commitment,
+        issuerAuthorization: giftCard.issuerAuthorization,
+        expiry: giftCard.expiry,
+        escrowCoinCommitment: giftCard.escrowCoinCommitment,
+        redemptionNullifier: disclose(nullifier),
+        status: GiftCardStatus.RECLAIMED
+    });
+
+    return sendShielded(
+        disclose(escrowCoin),
+        left<ZswapCoinPublicKey, ContractAddress>(ownPublicKey()),
+        disclose(escrowCoin.value)
+    );
+}

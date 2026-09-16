@@ -1,0 +1,37 @@
+import { type ComponentProps } from 'react';
+
+import { GlobePulse } from './GlobePulse';
+
+const heroMarkers = [
+    { id: 'lumapay-london', location: [51.5072, -0.1276] as [number, number], delay: 0 },
+    { id: 'lumapay-new-york', location: [40.7128, -74.006] as [number, number], delay: 0.45 },
+    { id: 'lumapay-singapore', location: [1.3521, 103.8198] as [number, number], delay: 0.9 },
+    { id: 'lumapay-mumbai', location: [19.076, 72.8777] as [number, number], delay: 1.35 },
+    { id: 'lumapay-sf', location: [37.7749, -122.4194] as [number, number], delay: 1.8 },
+    { id: 'lumapay-dubai', location: [25.2048, 55.2708] as [number, number], delay: 2.25 },
+    { id: 'lumapay-tokyo', location: [35.6895, 139.6917] as [number, number], delay: 2.7 },
+];
+
+type DottedGlobeProps = {
+    className?: string;
+    globeClassName?: ComponentProps<typeof GlobePulse>['className'];
+};
+
+const DottedGlobe = ({ className = '', globeClassName = '' }: DottedGlobeProps) => {
+    return (
+        <div className={`relative mx-auto aspect-square w-full max-w-[360px] sm:max-w-[500px] md:max-w-[620px] lg:max-w-[760px] ${className}`}>
+            <div className="absolute inset-[14%] rounded-full bg-orange-500/8 blur-[110px] md:blur-[150px]" />
+            <div className="absolute inset-[11%] rounded-full bg-orange-400/5 blur-[80px] md:blur-[100px]" />
+
+            <div className="pointer-events-none absolute inset-[12%] rounded-full">
+                <GlobePulse
+                    className={`h-full w-full opacity-85 drop-shadow-[0_0_65px_rgba(249,115,22,0.12)] ${globeClassName}`}
+                    markers={heroMarkers}
+                    speed={0.0024}
+                />
+            </div>
+        </div>
+    );
+};
+
+export default DottedGlobe;
