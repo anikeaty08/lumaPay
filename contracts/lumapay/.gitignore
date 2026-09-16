@@ -1,9 +1,0 @@
-# Compiler output: large ZK proving-key binaries (hundreds of MB). Not needed
-# in version control — backend/generated and frontend/public/zk already carry
-# the committed copies that Render/Vercel actually run against. Regenerate
-# this locally with the pinned Compact compiler when you need to rebuild.
-dist/
-node_modules
-.env
-.env.local
-.turbo
