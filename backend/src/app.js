@@ -278,6 +278,12 @@ export function createApp(runtime) {
         response.json({ network: runtime.environment.network.networkId, contracts: runtime.environment.contracts });
     });
 
+    app.post('/lumabot/chat', asyncRoute(async (request, response) => {
+        const message = requiredString(request.body.message, 'message', 4000);
+        const context = request.body.context && typeof request.body.context === 'object' ? request.body.context : {};
+        response.json(await runtime.lumabot.chat(message, context));
+    }));
+
     app.post('/api/v1/auth/challenges', asyncRoute(async (request, response) => {
         const origin = String(request.get('origin') || request.body.origin || '').replace(/\/+$/, '');
         const challenge = await runtime.auth.createChallenge({

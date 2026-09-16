@@ -7,6 +7,7 @@ import { MidnightGateway } from './services/midnight-gateway.js';
 import { ReconciliationService } from './services/reconciliation-service.js';
 import { WebhookService } from './services/webhook-service.js';
 import { WalletAuthService } from './services/wallet-auth-service.js';
+import { LumaBotService } from './services/lumabot-service.js';
 
 export function createRuntime(overrides = {}) {
     const environment = overrides.environment ?? getEnvironment();
@@ -28,6 +29,7 @@ export function createRuntime(overrides = {}) {
         log
     );
     const auth = overrides.auth ?? new WalletAuthService(repository, environment);
+    const lumabot = overrides.lumabot ?? new LumaBotService(environment, log);
 
     return {
         environment,
@@ -37,6 +39,7 @@ export function createRuntime(overrides = {}) {
         webhooks,
         reconciliation,
         auth,
+        lumabot,
         async start() {
             if (environment.reconciliationEnabled) {
                 await reconciliation.start(environment.reconciliationIntervalMs);

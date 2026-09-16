@@ -57,5 +57,10 @@ services:
         value: "15000"
       - key: LUMAPAY_AUTH_CHALLENGE_TTL_MS
         value: "300000"
+      # Powers POST /lumabot/chat. Without it that endpoint 503s.
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
       - key: LUMAPAY_AUTH_SESSION_TTL_MS
         value: "43200000"
