@@ -264,6 +264,12 @@ export function createApp(runtime) {
         network: runtime.environment.network.networkId
     }));
 
+    // Render (and most PaaS default health checks / uptime pings) hit `/`
+    // rather than `/health`. Without this it 404s every deploy, and on a
+    // free-tier instance any request — including a health check — is enough
+    // to wake it back up, so this doubles as the frontend's wake-up target.
+    app.get('/', (_request, response) => response.json({ ok: true, product: 'LumaPay' }));
+
     app.get('/api/v1/midnight/status', asyncRoute(async (_request, response) => {
         response.json(await runtime.gateway.status());
     }));
