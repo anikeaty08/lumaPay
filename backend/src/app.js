@@ -303,7 +303,15 @@ export function createApp(runtime) {
         response.cookie('lumapay_session', session.token, {
             httpOnly: true,
             secure: runtime.environment.auth.secureCookies,
-            sameSite: 'lax',
+            // The frontend (Vercel) and backend (Render) live on different
+            // domains, so every request between them is cross-site from the
+            // cookie's perspective. SameSite=Lax is silently dropped by the
+            // browser on cross-site fetches — the cookie would get set once
+            // on login and then never sent back, permanently AUTH_REQUIRED.
+            // SameSite=None requires Secure, so this only applies once we're
+            // actually on HTTPS (production); local http://127.0.0.1 dev,
+            // where frontend and backend share the same site, keeps Lax.
+            sameSite: runtime.environment.auth.secureCookies ? 'none' : 'lax',
             path: '/',
             expires: session.expiresAt
         });
@@ -328,7 +336,11 @@ export function createApp(runtime) {
     app.delete('/api/v1/auth/session', walletAuthenticated, asyncRoute(async (request, response) => {
         const token = readCookie(request, 'lumapay_session');
         await runtime.repository.revokeAuthSession(sha256(token));
-        response.clearCookie('lumapay_session', { path: '/' });
+        response.clearCookie('lumapay_session', {
+            path: '/',
+            secure: runtime.environment.auth.secureCookies,
+            sameSite: runtime.environment.auth.secureCookies ? 'none' : 'lax'
+        });
         response.status(204).end();
     }));
 
