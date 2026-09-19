@@ -45,4 +45,9 @@ export class UnavailableRepository {
     webhookConfiguration() { return null; }
     getMerchant() { return this.#unavailable(); }
     getMerchantPublic() { return this.#unavailable(); }
+    getUserProfile() { return this.#unavailable(); }
+    upsertUserProfile() { return this.#unavailable(); }
+    clearBurnerProfileData() { return this.#unavailable(); }
+    getNotificationPreferences() { return this.#unavailable(); }
+    updateNotificationPreferences() { return this.#unavailable(); }
 }

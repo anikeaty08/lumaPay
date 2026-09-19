@@ -284,6 +284,59 @@ export function createApp(runtime) {
         response.json(await runtime.lumabot.chat(message, context));
     }));
 
+    // address_hash-keyed (SHA-256 of the owning address, hashed client-side —
+    // see frontend hashAddress()), not gated by the merchant session cookie:
+    // a user's ability to compute the matching hash of their own address is
+    // the access control here, same as elsewhere this repo hashes rather
+    // than stores plaintext identifiers.
+    const HEX_64 = /^[0-9a-f]{64}$/i;
+    const optionalString = (value, label, maximum) => {
+        if (value === undefined || value === null || value === '') return null;
+        return requiredString(value, label, maximum);
+    };
+
+    app.get('/users/profile/:hash', asyncRoute(async (request, response) => {
+        if (!HEX_64.test(request.params.hash)) throw new AppError('ADDRESS_HASH_INVALID', 'address_hash must be 32-byte hexadecimal.', 400);
+        const profile = await runtime.repository.getUserProfile(request.params.hash.toLowerCase());
+        if (!profile) throw new AppError('USER_PROFILE_NOT_FOUND', 'No profile found for this address.', 404);
+        response.json(profile);
+    }));
+
+    app.post('/users/profile', asyncRoute(async (request, response) => {
+        const addressHash = requiredString(request.body.address_hash, 'address_hash', 64).toLowerCase();
+        if (!HEX_64.test(addressHash)) throw new AppError('ADDRESS_HASH_INVALID', 'address_hash must be 32-byte hexadecimal.', 400);
+        const profile = await runtime.repository.upsertUserProfile({
+            addressHash,
+            mainAddress: requiredString(request.body.main_address, 'main_address', 8192),
+            burnerAddress: optionalString(request.body.burner_address, 'burner_address', 8192),
+            encryptedBurnerKey: optionalString(request.body.encrypted_burner_key, 'encrypted_burner_key', 8192),
+            profileMainInvoiceHash: optionalString(request.body.profile_main_invoice_hash, 'profile_main_invoice_hash', 64),
+            profileBurnerInvoiceHash: optionalString(request.body.profile_burner_invoice_hash, 'profile_burner_invoice_hash', 64)
+        });
+        response.status(201).json(profile);
+    }));
+
+    app.post('/users/profile/clear-burner', asyncRoute(async (request, response) => {
+        const addressHash = requiredString(request.body.address_hash, 'address_hash', 64).toLowerCase();
+        if (!HEX_64.test(addressHash)) throw new AppError('ADDRESS_HASH_INVALID', 'address_hash must be 32-byte hexadecimal.', 400);
+        const profile = await runtime.repository.clearBurnerProfileData(addressHash);
+        if (!profile) throw new AppError('USER_PROFILE_NOT_FOUND', 'No profile found for this address.', 404);
+        response.json(profile);
+    }));
+
+    app.get('/users/notifications/:hash', asyncRoute(async (request, response) => {
+        if (!HEX_64.test(request.params.hash)) throw new AppError('ADDRESS_HASH_INVALID', 'address_hash must be 32-byte hexadecimal.', 400);
+        const prefs = await runtime.repository.getNotificationPreferences(request.params.hash.toLowerCase());
+        response.json(prefs ?? { notify_on_settled: false });
+    }));
+
+    app.patch('/users/notifications', asyncRoute(async (request, response) => {
+        const addressHash = requiredString(request.body.address_hash, 'address_hash', 64).toLowerCase();
+        if (!HEX_64.test(addressHash)) throw new AppError('ADDRESS_HASH_INVALID', 'address_hash must be 32-byte hexadecimal.', 400);
+        const prefs = await runtime.repository.updateNotificationPreferences(addressHash, Boolean(request.body.notify_on_settled));
+        response.json(prefs);
+    }));
+
     app.post('/api/v1/auth/challenges', asyncRoute(async (request, response) => {
         const origin = String(request.get('origin') || request.body.origin || '').replace(/\/+$/, '');
         const challenge = await runtime.auth.createChallenge({

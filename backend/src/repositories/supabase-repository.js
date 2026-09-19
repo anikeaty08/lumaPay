@@ -409,4 +409,75 @@ export class SupabaseRepository {
             midnight_address: decrypt(merchant.midnight_address_ciphertext, 'merchant-address')
         };
     }
+
+    // address_hash-keyed; the values arriving here (main_address, burner_address,
+    // encrypted_burner_key) are already encrypted client-side with the user's own
+    // app password before they reach this repository — stored as opaque ciphertext,
+    // same non-custodial pattern as merchants.*_ciphertext above.
+    async getUserProfile(addressHash) {
+        return unwrap(
+            await this.client.from('user_profiles').select('*').eq('address_hash', addressHash).maybeSingle(),
+            'get_user_profile'
+        );
+    }
+
+    async upsertUserProfile(profile) {
+        return unwrap(
+            await this.client.from('user_profiles').upsert({
+                address_hash: profile.addressHash,
+                main_address: profile.mainAddress,
+                burner_address: profile.burnerAddress ?? null,
+                encrypted_burner_key: profile.encryptedBurnerKey ?? null,
+                profile_main_invoice_hash: profile.profileMainInvoiceHash ?? null,
+                profile_burner_invoice_hash: profile.profileBurnerInvoiceHash ?? null,
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'address_hash' }).select().single(),
+            'upsert_user_profile'
+        );
+    }
+
+    async clearBurnerProfileData(addressHash) {
+        return unwrap(
+            await this.client.from('user_profiles').update({
+                burner_address: null,
+                encrypted_burner_key: null,
+                profile_burner_invoice_hash: null,
+                updated_at: new Date().toISOString()
+            }).eq('address_hash', addressHash).select().maybeSingle(),
+            'clear_burner_profile_data'
+        );
+    }
+
+    async getNotificationPreferences(addressHash) {
+        const row = unwrap(
+            await this.client.from('user_profiles').select('notify_on_settled').eq('address_hash', addressHash).maybeSingle(),
+            'get_notification_preferences'
+        );
+        return row ? { notify_on_settled: row.notify_on_settled } : null;
+    }
+
+    async updateNotificationPreferences(addressHash, notifyOnSettled) {
+        const row = unwrap(
+            await this.client.from('user_profiles').update({
+                notify_on_settled: notifyOnSettled,
+                updated_at: new Date().toISOString()
+            }).eq('address_hash', addressHash).select('notify_on_settled').maybeSingle(),
+            'update_notification_preferences'
+        );
+        if (row) return { notify_on_settled: row.notify_on_settled };
+        // No profile row exists yet (user only ever touched notification
+        // settings, never generated a burner wallet) — a minimal row is
+        // still valid since only address_hash + main_address are required;
+        // main_address is unknown here, so store an empty placeholder
+        // rather than block on a field this endpoint doesn't receive.
+        const created = unwrap(
+            await this.client.from('user_profiles').insert({
+                address_hash: addressHash,
+                main_address: '',
+                notify_on_settled: notifyOnSettled
+            }).select('notify_on_settled').single(),
+            'create_notification_preferences'
+        );
+        return { notify_on_settled: created.notify_on_settled };
+    }
 }
