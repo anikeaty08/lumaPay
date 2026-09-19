@@ -62,8 +62,11 @@ export const BackupModal: React.FC<BackupModalProps> = ({
                             {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                         </button>
                     </div>
-                    <p className="mb-6 text-xs leading-relaxed text-gray-500">
+                    <p className="mb-3 text-xs leading-relaxed text-gray-500">
                         On-chain password backup uses a single Compact field, so setup passwords should stay within {COMPACT_PASSWORD_BACKUP_MAX_BYTES} bytes.
+                    </p>
+                    <p className="mb-6 text-[11px] leading-relaxed text-amber-300/80 bg-amber-500/5 border border-amber-500/15 rounded-xl px-3 py-2.5">
+                        Privacy wallet backup is managed by the connected Midnight wallet — this legacy password-based backup has been removed and isn't available on this build.
                     </p>
                 </>
             )}
@@ -73,9 +76,10 @@ export const BackupModal: React.FC<BackupModalProps> = ({
                     {backupSuccess ? 'Close' : 'Cancel'}
                 </button>
                 {!backupSuccess && (
-                    <button type="submit" disabled={isBackingUp || !password}
-                        className="flex-1 py-3 bg-white text-black font-bold rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity">
-                        {isBackingUp ? 'Backing up...' : 'Confirm Backup'}
+                    <button type="submit" disabled
+                        title="This legacy backup flow isn't available on this build"
+                        className="flex-1 py-3 bg-white text-black font-bold rounded-xl opacity-50 cursor-not-allowed">
+                        Unavailable
                     </button>
                 )}
             </div>
