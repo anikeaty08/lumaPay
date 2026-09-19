@@ -50,4 +50,5 @@ export class UnavailableRepository {
     clearBurnerProfileData() { return this.#unavailable(); }
     getNotificationPreferences() { return this.#unavailable(); }
     updateNotificationPreferences() { return this.#unavailable(); }
+    createSupportFeedback() { return this.#unavailable(); }
 }

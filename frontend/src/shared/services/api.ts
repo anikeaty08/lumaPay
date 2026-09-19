@@ -325,7 +325,7 @@ export const fetchTelegramLinkSession = async (token: string): Promise<TelegramL
     const payload = await response.json().catch(() => null);
 
     if (!response.ok) {
-        throw new Error(payload?.error || 'Failed to load Telegram link session');
+        throw new Error(payload?.error?.message || payload?.error || 'Failed to load Telegram link session');
     }
 
     return payload;
@@ -477,7 +477,7 @@ export const chatWithDashboardAssistant = async (
 
     const payload = await response.json();
     if (!response.ok) {
-        throw new Error(payload?.error || 'Failed to chat with dashboard assistant');
+        throw new Error(payload?.error?.message || payload?.error || 'Failed to chat with dashboard assistant');
     }
 
     return payload.reply;
@@ -496,7 +496,7 @@ export const chatWithLumaBot = async (
 
     const payload = await response.json();
     if (!response.ok) {
-        throw new Error(payload?.error || 'Failed to chat with LumaBot');
+        throw new Error(payload?.error?.message || payload?.error || 'Failed to chat with LumaBot');
     }
 
     return payload;
@@ -514,7 +514,7 @@ export const chatWithDeveloperAssistant = async (
 
     const payload = await response.json();
     if (!response.ok) {
-        throw new Error(payload?.error || 'Failed to chat with developer assistant');
+        throw new Error(payload?.error?.message || payload?.error || 'Failed to chat with developer assistant');
     }
 
     return payload.reply;
@@ -557,7 +557,7 @@ export const submitSupportFeedback = async (
 
     const data = await response.json().catch(() => null);
     if (!response.ok) {
-        throw new Error(data?.error || 'Failed to submit support feedback');
+        throw new Error(data?.error?.message || data?.error || 'Failed to submit support feedback');
     }
 
     return data;

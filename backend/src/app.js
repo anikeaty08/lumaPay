@@ -337,6 +337,29 @@ export function createApp(runtime) {
         response.json(prefs);
     }));
 
+    app.post('/support/feedback', asyncRoute(async (request, response) => {
+        const email = requiredString(request.body.email, 'email', 320);
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            throw new AppError('EMAIL_INVALID', 'A valid email address is required.', 400);
+        }
+        const type = requiredString(request.body.type, 'type', 16);
+        if (!['complaint', 'feedback'].includes(type)) {
+            throw new AppError('FEEDBACK_TYPE_INVALID', "type must be 'complaint' or 'feedback'.", 400);
+        }
+        const message = requiredString(request.body.message, 'message', 4000);
+        const walletAddress = request.body.walletAddress
+            ? requiredString(request.body.walletAddress, 'walletAddress', 512)
+            : null;
+        await runtime.repository.createSupportFeedback({
+            id: crypto.randomUUID(),
+            email,
+            type,
+            message,
+            walletAddress
+        });
+        response.status(201).json({ success: true, message: "Thanks — we've got it." });
+    }));
+
     app.post('/api/v1/auth/challenges', asyncRoute(async (request, response) => {
         const origin = String(request.get('origin') || request.body.origin || '').replace(/\/+$/, '');
         const challenge = await runtime.auth.createChallenge({

@@ -480,4 +480,17 @@ export class SupabaseRepository {
         );
         return { notify_on_settled: created.notify_on_settled };
     }
+
+    async createSupportFeedback(feedback) {
+        return unwrap(
+            await this.client.from('support_feedback').insert({
+                id: feedback.id,
+                email: feedback.email,
+                type: feedback.type,
+                message: feedback.message,
+                wallet_address: feedback.walletAddress ?? null
+            }).select().single(),
+            'create_support_feedback'
+        );
+    }
 }
