@@ -66,17 +66,25 @@ export function locateContractCoinIndex(
 export type StoredQualifiedCoin = ShieldedCoinInfo & { mt_index: bigint };
 
 export async function tokenId(symbol: string): Promise<Uint8Array> {
-  if (symbol.trim().toUpperCase() === 'NIGHT') return new Uint8Array(32);
-  const configured = symbol.trim().toUpperCase() === 'USDCX'
+  const code = symbol.trim().toUpperCase();
+  if (code === 'NIGHT') return new Uint8Array(32);
+  // USDCX/USAD only resolve to a real on-chain color when their deployed
+  // token ID is configured. Anything else — an unrecognized symbol, or one
+  // of these two without its env var set — used to silently fall through
+  // to hashing the raw string into a plausible-looking but fabricated
+  // 32-byte color, which a malformed or malicious payment link's `token`
+  // field could trigger. That built a real proof against a token nobody
+  // actually holds, failing late and confusingly instead of immediately.
+  const configured = code === 'USDCX'
     ? import.meta.env.VITE_LUMAPAY_USDCX_TOKEN_ID
-    : symbol.trim().toUpperCase() === 'USAD'
+    : code === 'USAD'
       ? import.meta.env.VITE_LUMAPAY_USAD_TOKEN_ID
       : undefined;
-  if (configured) {
-    if (!/^[0-9a-f]{64}$/i.test(configured)) throw new Error(`${symbol} token ID must be 32-byte hexadecimal.`);
-    return Uint8Array.from(configured.match(/.{2}/g) ?? [], (byte: string) => Number.parseInt(byte, 16));
+  if (!configured) {
+    throw new Error(`"${symbol}" is not a supported token on this LumaPay deployment.`);
   }
-  return new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(symbol)));
+  if (!/^[0-9a-f]{64}$/i.test(configured)) throw new Error(`${symbol} token ID must be 32-byte hexadecimal.`);
+  return Uint8Array.from(configured.match(/.{2}/g) ?? [], (byte: string) => Number.parseInt(byte, 16));
 }
 
 function privateStatePassword(): string {

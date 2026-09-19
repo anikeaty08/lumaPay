@@ -104,7 +104,7 @@ export const BurnerWalletSettings: React.FC<BurnerWalletSettingsProps> = ({ item
                                 {a.fetchedFromChain && (
                                     <div className="px-3 py-2 bg-blue-500/10 border border-blue-500/20 rounded-lg flex items-center gap-2">
                                         <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-                                        <span className="text-blue-400 text-[11px] font-bold">Password and Private Key securely fetched from on-chain records.</span>
+                                        <span className="text-blue-400 text-[11px] font-bold">Restored from your encrypted LumaPay profile and decrypted locally with your password.</span>
                                     </div>
                                 )}
                                 <div className="flex flex-col md:flex-row items-center justify-between gap-3">

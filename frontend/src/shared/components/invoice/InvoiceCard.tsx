@@ -26,6 +26,7 @@ export const InvoiceCard: React.FC<InvoiceCardProps> = ({
     const [copiedHash, setCopiedHash] = useState(false);
     const [copiedSalt, setCopiedSalt] = useState(false);
     const [isPaid, setIsPaid] = useState(false);
+    const [recoveryDownloaded, setRecoveryDownloaded] = useState(false);
 
     useEffect(() => {
         if (invoiceData.type === 2 || invoiceData.type === 3) return;
@@ -60,6 +61,28 @@ export const InvoiceCard: React.FC<InvoiceCardProps> = ({
         navigator.clipboard.writeText(invoiceData.link);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
+    };
+
+    // The claim/cancel/expire secrets for this invoice live only in this
+    // browser's localStorage (lumapay:recovery:<hash>) — there was
+    // previously no way to ever get them out. Lose this browser's storage
+    // and the merchant permanently loses the ability to claim a settled
+    // payment, with the app's own error message pointing at an "import
+    // recovery JSON" feature that didn't exist anywhere. This is that
+    // missing export half.
+    const handleDownloadRecovery = () => {
+        const raw = localStorage.getItem(`lumapay:recovery:${invoiceData.hash}`);
+        if (!raw) return;
+        const blob = new Blob([raw], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `lumapay-recovery-${invoiceData.hash.slice(0, 12)}.json`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        URL.revokeObjectURL(url);
+        setRecoveryDownloaded(true);
     };
 
     return (
@@ -224,9 +247,27 @@ export const InvoiceCard: React.FC<InvoiceCardProps> = ({
                 </div>
             </div>
 
-            <p className="text-gray-500 text-xs text-center mb-8">
+            <p className="text-gray-500 text-xs text-center mb-4">
                 💡 You can verify this transaction in our <span className="text-neon-primary hover:underline cursor-pointer">Explorer</span> using these credentials.
             </p>
+
+            <div className="mb-8 rounded-xl border border-orange-400/25 bg-orange-500/5 p-4 text-left">
+                <p className="text-xs font-semibold text-orange-200">
+                    {recoveryDownloaded ? 'Recovery backup downloaded.' : 'Back this up before you leave.'}
+                </p>
+                <p className="mt-1 text-[11px] leading-relaxed text-orange-100/70">
+                    The keys to cancel, expire, or claim this payment once it's settled only exist in this browser right now. If you clear
+                    site data or switch devices without this file, there is no way to recover them.
+                </p>
+                <Button
+                    variant={recoveryDownloaded ? 'secondary' : 'primary'}
+                    size="sm"
+                    className="mt-3 w-full"
+                    onClick={handleDownloadRecovery}
+                >
+                    {recoveryDownloaded ? 'Download Again' : 'Download Recovery Backup (.json)'}
+                </Button>
+            </div>
 
             <Button
                 variant="outline"
