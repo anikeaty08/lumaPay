@@ -174,7 +174,7 @@ export const useLumaBotController = ({
         setActionStatus('Scanning burner wallet records...');
         const freshBurnerBalances = await loadBurnerBalanceContext();
         const availableBurnerBalances: Record<BurnerSweepCurrency, number> = {
-            NIGHT: Number(freshBurnerBalances.find((entry) => entry.token === 'NIGHT')?.privateBalance || '0'),
+            NIGHT: Number(freshBurnerBalances.find((entry) => entry.token === 'NIGHT')?.privateBalance) || 0,
         };
 
         setPendingToolCall(buildPendingToolCall(toolCall, { availableBurnerBalances }));
@@ -311,7 +311,7 @@ export const useLumaBotController = ({
                 setActionStatus('Scanning burner wallet records...');
                 const freshBurnerBalances = await loadBurnerBalanceContext();
                 availableBurnerBalances = {
-                    NIGHT: Number(freshBurnerBalances.find((entry) => entry.token === 'NIGHT')?.privateBalance || '0'),
+                    NIGHT: Number(freshBurnerBalances.find((entry) => entry.token === 'NIGHT')?.privateBalance) || 0,
                 };
             }
 

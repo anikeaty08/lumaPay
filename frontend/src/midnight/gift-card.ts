@@ -28,7 +28,7 @@ export type GiftCardIssuerRecovery = GiftCardOpening & {
   label: string;
 };
 
-function encodeCode(cards: GiftCardOpening[]): string {
+export function encodeCode(cards: GiftCardOpening[]): string {
   const bytes = new TextEncoder().encode(JSON.stringify({ version: 1, network: 'preprod', cards }));
   let binary = '';
   bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
