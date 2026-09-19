@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "product": "LumaPay",
+  "contractModule": "backup-anchor",
+  "network": "preprod",
+  "contractAddress": "9b9879c4d0c3aa79ec6dbea8e6b1fe8b4c7391ad5cfa319eb7f0a34bd1e0b16d",
+  "compactToolchain": "0.31.1",
+  "deployedAt": "2026-09-07T19:35:48.627Z"
+}

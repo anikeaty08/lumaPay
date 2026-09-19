@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "network": "preprod",
+  "contractAddress": "252404b3ad5a4f02071bb59d3631a86419cf6c6d1b995ccebe78399fe44000b2",
+  "invoiceId": "03c3265a09d0335cec6e97b66ecb4680de2ae1e8c373afdc3cf221f0fef1463b",
+  "transactionId": "00ea606b6b64eb06ec2bd5dedf211f8ea2dfe4523dd9063d6a69c0c26549b3d506",
+  "status": "OPEN",
+  "verifiedAt": "2026-09-08T01:04:45.256Z"
+}

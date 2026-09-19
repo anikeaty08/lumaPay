@@ -4,6 +4,15 @@ import { fileURLToPath } from 'node:url';
 import { AppError } from '../errors/app-error.js';
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
+// workspaceRoot assumes the full monorepo is checked out (backend/src/config
+// -> backend/src -> backend -> repo root), which holds for local dev but not
+// for a Docker build whose context is scoped to backend/ alone (e.g. Render
+// deploying via backend/Dockerfile) — there, three levels up from this file
+// lands outside the image entirely. backendRoot (two levels up) is correct
+// in both cases, so anything that ships inside backend/ (committed contract
+// artifacts, the copied-in deployment manifest below) resolves off that
+// instead of workspaceRoot.
+const backendRoot = path.resolve(currentDirectory, '..', '..');
 const workspaceRoot = path.resolve(currentDirectory, '..', '..', '..');
 
 const NETWORKS = Object.freeze({
@@ -37,31 +46,31 @@ const NETWORKS = Object.freeze({
     })
 });
 
+// The deployment manifests live under contracts/lumapay/deployments in the
+// monorepo, but copy-contract-artifacts.js also mirrors them into
+// backend/generated/deployments so they ship inside a backend/-only Docker
+// build. Prefer that shipped copy; fall back to the monorepo-relative path
+// for local dev before the copy step has ever run.
+function resolveManifestPath(filename) {
+    const shipped = path.join(backendRoot, 'generated', 'deployments', filename);
+    if (existsSync(shipped)) return shipped;
+    const workspacePath = path.join(workspaceRoot, 'contracts', 'lumapay', 'deployments', filename);
+    return existsSync(workspacePath) ? workspacePath : null;
+}
+
 function deploymentAddress(networkId) {
     const explicit = process.env.LUMAPAY_CONTRACT_ADDRESS?.trim();
     if (explicit) return explicit;
 
-    const manifestPath = path.join(
-        workspaceRoot,
-        'contracts',
-        'lumapay',
-        'deployments',
-        `${networkId}.json`
-    );
-    if (!existsSync(manifestPath)) return null;
+    const manifestPath = resolveManifestPath(`${networkId}.json`);
+    if (!manifestPath) return null;
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
     return manifest.contractAddress ?? null;
 }
 
 function deploymentSuite(networkId) {
-    const manifestPath = path.join(
-        workspaceRoot,
-        'contracts',
-        'lumapay',
-        'deployments',
-        `${networkId}-suite.json`
-    );
-    if (!existsSync(manifestPath)) {
+    const manifestPath = resolveManifestPath(`${networkId}-suite.json`);
+    if (!manifestPath) {
         const core = deploymentAddress(networkId);
         return core ? { 'invoice-core': core } : {};
     }
@@ -111,8 +120,7 @@ export function getEnvironment() {
     ].filter(Boolean).map((origin) => origin.trim().replace(/\/+$/, ''));
 
     const installedArtifactsRoot = path.join(
-        workspaceRoot,
-        'backend',
+        backendRoot,
         'generated',
         'lumapay'
     );

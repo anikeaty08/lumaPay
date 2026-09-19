@@ -7,6 +7,14 @@ const workspaceRoot = path.resolve(backendRoot, '..');
 const source = path.join(workspaceRoot, 'contracts', 'lumapay', 'dist', 'managed');
 const destination = path.join(backendRoot, 'generated', 'lumapay');
 
+// Deployment manifests (contract addresses) live outside backend/ in the
+// monorepo. A Docker build whose context is scoped to backend/ alone (e.g.
+// Render deploying via backend/Dockerfile) never sees that directory at all,
+// so mirror it inside backend/generated too — environment.js reads this
+// shipped copy first, falling back to the monorepo-relative path locally.
+const deploymentsSource = path.join(workspaceRoot, 'contracts', 'lumapay', 'deployments');
+const deploymentsDestination = path.join(backendRoot, 'generated', 'deployments');
+
 if (!existsSync(source)) {
     // Deployed environments (e.g. Render) don't carry the Compact compiler
     // toolchain and won't have contracts/lumapay/dist checked out. As long as
@@ -22,3 +30,9 @@ if (!existsSync(source)) {
 mkdirSync(destination, { recursive: true });
 cpSync(source, destination, { recursive: true, force: true });
 console.log(`Copied LumaPay contract artifacts to ${destination}.`);
+
+if (existsSync(deploymentsSource)) {
+    mkdirSync(deploymentsDestination, { recursive: true });
+    cpSync(deploymentsSource, deploymentsDestination, { recursive: true, force: true });
+    console.log(`Copied LumaPay deployment manifests to ${deploymentsDestination}.`);
+}

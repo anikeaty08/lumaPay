@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "product": "LumaPay",
+  "contractModule": "campaigns",
+  "network": "preprod",
+  "contractAddress": "c7ecd023012aaa863f6c8150d55366aed88e2347f47affbb1c71ccdb5dfbd43a",
+  "compactToolchain": "0.31.1",
+  "deployedAt": "2026-09-07T19:21:55.009Z"
+}

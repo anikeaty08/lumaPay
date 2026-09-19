@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "product": "LumaPay",
+  "contractModule": "invoice-core",
+  "network": "preprod",
+  "contractAddress": "252404b3ad5a4f02071bb59d3631a86419cf6c6d1b995ccebe78399fe44000b2",
+  "commitmentVersion": "1",
+  "compactToolchain": "0.31.1",
+  "compactLanguage": "0.23.0",
+  "compactRuntime": "0.16.0",
+  "midnightJs": "4.1.1",
+  "walletSdk": "1.2.0",
+  "proofServer": "8.1.0",
+  "deployedAt": "2026-09-07T18:56:48.264Z"
+}

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "product": "LumaPay",
+  "contractModule": "gift-cards",
+  "network": "preprod",
+  "contractAddress": "5600a4fc947cc5f56f8c2c8540de86e744f74f01e7befd400f7fd7ce41097d37",
+  "compactToolchain": "0.31.1",
+  "deployedAt": "2026-09-07T19:26:01.778Z"
+}

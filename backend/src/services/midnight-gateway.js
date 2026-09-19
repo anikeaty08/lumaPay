@@ -363,10 +363,22 @@ export class MidnightGateway {
         await this.initialize();
         const modules = {};
         for (const [module, address] of Object.entries(this.environment.contracts)) {
-            modules[module] = {
-                address,
-                indexed: Boolean(await this.provider.queryContractState(address))
-            };
+            // A module with no configured address (e.g. card-vault, not yet
+            // deployed) isn't a chain-read failure — report it as such
+            // instead of handing an empty/undefined address to the indexer,
+            // which throws and previously took down this whole endpoint for
+            // every module just because one hadn't been deployed yet.
+            if (!address) {
+                modules[module] = { address: null, indexed: false };
+                continue;
+            }
+            let indexed = false;
+            try {
+                indexed = Boolean(await this.provider.queryContractState(address));
+            } catch (error) {
+                this.log.warn('chain.status_query_degraded', { module, error: error instanceof Error ? error.message : String(error) });
+            }
+            modules[module] = { address, indexed };
         }
         return {
             network: this.environment.network.networkId,
