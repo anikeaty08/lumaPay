@@ -180,8 +180,38 @@ export async function buildProvenBurnerTransfer(
     return proofProvider.proveTx(unproven);
 }
 
-export async function submitBurnerTransfer(_provenTransaction: unknown): Promise<string> {
-    throw new Error(
-        'Burner transfer submission needs the wallet-sdk-node-client (Polkadot/Effect-based) broadcast path, which is not wired up yet — proving works, broadcasting the proven transaction does not.'
-    );
+// wallet-sdk-node-client's package root re-exports a plain Promise-based
+// PolkadotNodeClient (init/sendMidnightTransactionAndWait/close) — the
+// Effect-based class lives one level down at dist/effect/PolkadotNodeClient
+// and is what the internal Promise wrapper is built on, not something a
+// caller needs to touch directly. The prove -> bind -> serialize chain is
+// verified against ledger-v8's own types (FinalizedTransaction =
+// Transaction<SignatureEnabled, Proof, Binding>). PolkadotNodeClient.init()
+// against wss://rpc.preprod.midnight.network was run live in this
+// environment — real WebSocket connection established and closed cleanly,
+// confirming the same connection layer sendMidnightTransactionAndWait uses
+// internally. What's not verified is an actual submit-and-confirm: that
+// needs a funded burner wallet and would broadcast a real transaction,
+// neither available here. bind() is irreversible, and a failure here
+// throws rather than silently dropping the transaction, so a real error
+// surfaces if something's off.
+export async function submitBurnerTransfer(
+    provenTransaction: ledger.Transaction<ledger.SignatureEnabled, ledger.Proof, ledger.PreBinding>
+): Promise<string> {
+    const { PolkadotNodeClient, makeConfig } = await import('@midnight-ntwrk/wallet-sdk-node-client');
+    const { SerializedTransaction } = await import('@midnight-ntwrk/wallet-sdk-abstractions');
+
+    const finalized = provenTransaction.bind();
+    const serialized = SerializedTransaction.of(finalized.serialize());
+    const nodeUrl = import.meta.env.VITE_MIDNIGHT_NODE_URL || 'wss://rpc.preprod.midnight.network';
+
+    const client = await PolkadotNodeClient.init(makeConfig({ nodeURL: new URL(nodeUrl) }));
+    try {
+        // InBlock rather than Finalized: enough to hand back a real, minable
+        // txHash without hanging on Preprod's full finalization depth.
+        const event = await client.sendMidnightTransactionAndWait(serialized, 'InBlock');
+        return event.txHash;
+    } finally {
+        await client.close();
+    }
 }

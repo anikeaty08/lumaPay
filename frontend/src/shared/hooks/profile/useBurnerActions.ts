@@ -162,6 +162,10 @@ export function useBurnerActions() {
             setError('Please enter a destination address.');
             return;
         }
+        if (!decryptedBurnerKey) {
+            setError('Your burner wallet mnemonic is not loaded — reconnect or unlock it before sweeping.');
+            return;
+        }
 
         try {
             setIsSweeping(true);
@@ -171,7 +175,7 @@ export function useBurnerActions() {
             setSweepLogs([]);
 
             const sweepResult = await sweepBurnerFundsToDestination({
-                decryptedBurnerKey: decryptedBurnerKey || 'wallet-authorized',
+                decryptedBurnerKey,
                 amount: Number(sweepAmount),
                 currency: sweepCurrency,
                 destination: sweepDestination,

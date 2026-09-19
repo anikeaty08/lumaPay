@@ -211,7 +211,7 @@ export const SweepModal: React.FC<SweepModalProps> = ({
 
                 {!sweepTxId && (
                     <p className="text-[11px] leading-relaxed text-amber-300/80 bg-amber-500/5 border border-amber-500/15 rounded-xl px-3 py-2.5">
-                        Burner sweep needs native Midnight burner spend authority, which isn't available on this Preprod build yet — executing is disabled for now.
+                        Broadcasts a real transaction on Midnight Preprod. This path is newly wired up and hasn't processed a real sweep yet — double-check the destination address.
                     </p>
                 )}
 
@@ -224,10 +224,14 @@ export const SweepModal: React.FC<SweepModalProps> = ({
                     </button>
                     {!sweepTxId && (
                         <button type="submit"
-                            disabled
-                            title="Burner sweep isn't available yet on this Preprod build"
-                            className="flex-[2] py-3 rounded-xl flex justify-center items-center gap-2 bg-gray-600 cursor-not-allowed opacity-50 text-white font-bold">
-                            Unavailable
+                            disabled={isSweeping || !sweepAmount || !sweepDestination || privateBalances[sweepCurrency] <= 0 || isAmountTooHigh}
+                            className={`flex-[2] py-3 rounded-xl transition-all flex justify-center items-center gap-2 ${isAmountTooHigh ? 'bg-gray-600 cursor-not-allowed opacity-50 text-white font-bold' : isSweeping ? 'bg-white/5 text-white/90 font-medium border border-white/10' : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold hover:opacity-90 disabled:opacity-50'}`}>
+                            {isSweeping ? (
+                                <>
+                                    <div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-white animate-spin" />
+                                    <span>Sweeping...</span>
+                                </>
+                            ) : isAmountTooHigh ? 'Insufficient Balance' : 'Execute Sweep'}
                         </button>
                     )}
                 </div>
