@@ -29,7 +29,6 @@ import { InvoiceTable } from './components/InvoiceTable';
 import { PaidInvoicesTable } from './components/PaidInvoicesTable';
 import { DashboardChatbot } from './components/DashboardChatbot';
 import { ReportConfigModal } from './components/modals/ReportConfigModal';
-import { BackupBanner } from './components/BackupBanner';
 
 const Profile = () => {
     const navigate = useNavigate();
@@ -237,8 +236,6 @@ const Profile = () => {
                         ) : null}
                     </div>
                 </motion.div>
-
-                <BackupBanner />
 
                 <div className="mb-8">
                     <BurnerWalletSettings itemVariants={itemVariants} transactions={data.transactions} />
