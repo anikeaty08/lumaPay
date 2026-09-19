@@ -11,6 +11,12 @@ import { useCardWallet } from '../../../hooks/wallet/CardWalletProvider';
 import type { CardTokenCode } from '../../../types/tokens';
 import { CARD_PIN_LENGTH, CARD_SECRET_MIN_LENGTH } from '../../../utils/card/cardInputLimits';
 import { CARD_HINT_MAX_BYTES, CARD_LABEL_MAX_BYTES, getUtf8ByteLength } from '../../../utils/core/compactInputLimits';
+import { CONTRACTS } from '../../../../midnight/config';
+
+// card-vault is compiled/tested but not deployed yet on this Preprod build
+// (confirmed live via GET /api/v1/midnight/status). Card creation used to
+// let you fill in the whole form and only fail after submitting.
+const CARD_VAULT_DEPLOYED = Boolean(CONTRACTS['card-vault']);
 
 interface CardWalletPanelProps {
     itemVariants: any;
@@ -435,14 +441,19 @@ export const CardWalletPanel: React.FC<CardWalletPanelProps> = ({ itemVariants }
                         <p className="text-xs leading-relaxed text-gray-500">
                             Your hint should never contain the actual PIN or secret. LumaPay waits for the on-chain card record to confirm before treating setup as complete.
                         </p>
+                        {!CARD_VAULT_DEPLOYED && (
+                            <p className="text-[11px] leading-relaxed text-amber-300/80 bg-amber-500/5 border border-amber-500/15 rounded-xl px-3 py-2.5">
+                                LumaPay Card isn't live yet on this Preprod build — the card-vault contract hasn't been deployed. Creation is disabled for now.
+                            </p>
+                        )}
                         {connected ? (
                             <PrimaryAction
                                 type="submit"
                                 icon={Wallet}
-                                label="Create LumaPay Card"
+                                label={CARD_VAULT_DEPLOYED ? 'Create LumaPay Card' : 'Card Vault Not Deployed Yet'}
                                 loading={isInitializing}
                                 loadingLabel="Creating card"
-                                disabled={!label || !pin || !secret || labelTooLong || hintTooLong}
+                                disabled={!CARD_VAULT_DEPLOYED || !label || !pin || !secret || labelTooLong || hintTooLong}
                             />
                         ) : (
                             <div className="wallet-adapter-wrapper w-full [&>button]:!w-full [&>button]:!justify-center [&>button]:!rounded-xl [&>button]:!h-12 [&>button]:!font-bold [&>button]:!bg-white [&>button]:!text-black">

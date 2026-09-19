@@ -5,6 +5,20 @@ import {
     createCardVaultOnChain,
     setCardDailyLimitOnChain
 } from '@/midnight/card-vault';
+import { CONTRACTS } from '@/midnight/config';
+
+// card-vault is compiled/tested but not yet deployed on this Preprod build
+// (confirmed live: GET /api/v1/midnight/status reports card-vault address:
+// null). Every on-chain card operation below used to go straight into
+// createCardVaultOnChain/etc. with no upfront check, so a user would fill
+// out the whole create-card form (number, PIN, secret, label) and only
+// discover it can't work after submitting, from whatever low-level error
+// falls out of resolving an empty contract address.
+function assertCardVaultDeployed(): void {
+    if (!CONTRACTS['card-vault']) {
+        throw new Error('LumaPay Card is not available yet on this Preprod build — the card-vault contract has not been deployed.');
+    }
+}
 import {
     deleteCardWallet as deleteCardWalletEntry,
     getCardWallet,
@@ -467,6 +481,7 @@ export const CardWalletProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (!appPassword) {
             throw new Error('Unlock the app with your password before creating a card.');
         }
+        assertCardVaultDeployed();
 
         validatePin(pin);
         validateCardSecret(cardSecret);
@@ -666,6 +681,7 @@ export const CardWalletProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (!card) {
             throw new Error('Create your LumaPay card first.');
         }
+        assertCardVaultDeployed();
         if (!appPassword || !card.card_id || !card.card_owner_secret_ciphertext) {
             throw new Error('Card vault opening metadata is missing. Recreate the card after the Midnight migration.');
         }
