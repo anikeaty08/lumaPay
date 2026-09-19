@@ -11,7 +11,8 @@ export function useBurnerActions() {
         burnerAddress, decryptedBurnerKey,
         setDecryptedBurnerKey, refreshProfile, fetchedFromChain,
         hasOnChainRecord, appPassword,
-        decryptedBurnerAddress, hasBurnerOnChainRecord
+        decryptedBurnerAddress, hasBurnerOnChainRecord,
+        burnerIdentity
     } = useBurnerWallet();
 
     const [isGenerating, setIsGenerating] = useState(false);
@@ -60,14 +61,25 @@ export function useBurnerActions() {
         setIsScanningBalances(true);
         setPrivateBalances({ NIGHT: -1 });
         try {
-            setPrivateBalances({ NIGHT: 0 });
+            if (!burnerIdentity) {
+                setPrivateBalances({ NIGHT: 0 });
+                return;
+            }
+            // Reads live (possibly-partial) wallet state rather than blocking
+            // on a full sync — Preprod's full event history can take over an
+            // hour to walk for a fresh wallet (verified). A freshly generated
+            // burner legitimately has 0 either way; this matters for an
+            // *existing* burner whose balance may still be mid-sync.
+            const { getBurnerBalances } = await import('../../../midnight/burnerWallet');
+            const result = await getBurnerBalances(burnerIdentity);
+            setPrivateBalances(result.balances);
         } catch (e) {
             console.error('Failed to fetch private balances:', e);
             setPrivateBalances({ NIGHT: 0 });
         } finally {
             setIsScanningBalances(false);
         }
-    }, []);
+    }, [burnerIdentity]);
 
     const handleGenerateBurner = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
@@ -77,13 +89,21 @@ export function useBurnerActions() {
         try {
             setIsGenerating(true);
             setError(null);
-            const { shieldedAddress } = await api.getShieldedAddresses();
-            const encryptedKeyPayload = await encryptWithPassword('wallet-authorized', appPassword);
-            const encryptedBurnerAddress = await encryptWithPassword(shieldedAddress, appPassword);
+            // A real, independent identity — generated locally, never derived
+            // from or shared with the connected main wallet. The mnemonic is
+            // the actual recovery material; burner_address is a display cache
+            // re-derived from it on every load (see BurnerWalletProvider).
+            const { generateBurnerMnemonic, burnerWordsToMnemonic, startBurnerWallet, getBurnerAddress } = await import('../../../midnight/burnerWallet');
+            const mnemonic = burnerWordsToMnemonic(generateBurnerMnemonic());
+            const identity = await startBurnerWallet(mnemonic);
+            const realBurnerAddress = await getBurnerAddress(identity);
+
+            const encryptedKeyPayload = await encryptWithPassword(mnemonic, appPassword);
+            const encryptedBurnerAddress = await encryptWithPassword(realBurnerAddress, appPassword);
             const encryptedMainAddress = await encryptWithPassword(address, appPassword);
             const { updateUserProfile } = await import('../../services/api');
             await updateUserProfile(address, encryptedMainAddress, encryptedBurnerAddress, encryptedKeyPayload);
-            setDecryptedBurnerKey(null);
+            setDecryptedBurnerKey(mnemonic);
             await refreshProfile();
             setShowGenerateModal(false);
             setPassword('');

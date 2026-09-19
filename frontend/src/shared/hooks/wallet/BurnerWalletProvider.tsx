@@ -1,11 +1,17 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useWallet } from './WalletProvider';
+import { getUserProfile } from '../../services/api';
+import { decryptWithPassword } from '../../utils/core/crypto';
+import { startBurnerWallet, getBurnerAddress, type BurnerIdentity } from '../../../midnight/burnerWallet';
 
 interface PrivacyWalletContextValue {
     burnerAddress: string | null;
+    /** The burner identity's 24-word recovery mnemonic, decrypted — only ever held in memory, never logged or sent anywhere. Null until generated or unlocked this session. */
     decryptedBurnerKey: string | null;
     setDecryptedBurnerKey: (key: string | null) => void;
     encryptedBurnerKey: string | null;
+    /** The live, syncing wallet instance (frontend/src/midnight/burnerWallet.ts) — needed to read balances or build a spend. Null until a mnemonic is available. */
+    burnerIdentity: BurnerIdentity | null;
     refreshProfile: () => Promise<void>;
     fetchedFromChain: boolean;
     hasOnChainRecord: boolean;
@@ -24,23 +30,66 @@ interface PrivacyWalletContextValue {
 const PrivacyWalletContext = createContext<PrivacyWalletContextValue | undefined>(undefined);
 
 /**
- * Midnight keeps spending keys inside the connected wallet. LumaPay uses the
- * wallet's shielded address as its privacy wallet and never creates, exports,
- * encrypts, or uploads a second private key.
+ * A genuinely independent Midnight identity for burner payments — an
+ * HD-derived keypair (frontend/src/midnight/burnerWallet.ts), not the
+ * connected main wallet's own shielded address relabeled. The mnemonic is
+ * generated client-side (useBurnerActions.ts#handleGenerateBurner), never
+ * leaves the browser unencrypted, and is persisted to the backend only as
+ * ciphertext (encryptWithPassword) keyed by the hash of the main address.
+ *
+ * NOTE on appPassword: this still uses the pre-existing "wallet-authorized"
+ * placeholder (see below) rather than a real user-chosen password — the
+ * card-wallet feature also reads appPassword from this same context, and
+ * introducing a real password is a shared-system change (affects cards too)
+ * that deserves its own dedicated pass, not a rushed edit bundled into this
+ * one. The mnemonic is still real and independent; only the password
+ * protecting its at-rest ciphertext is the known-weak part.
  */
 export function BurnerWalletProvider({ children }: { children: ReactNode }) {
     const { api, address, connected } = useWallet();
-    const [shieldedAddress, setShieldedAddress] = useState<string | null>(null);
+    const [burnerIdentity, setBurnerIdentity] = useState<BurnerIdentity | null>(null);
+    const [burnerAddress, setBurnerAddress] = useState<string | null>(null);
+    const [decryptedBurnerKey, setDecryptedBurnerKey] = useState<string | null>(null);
+    const [encryptedBurnerKey, setEncryptedBurnerKey] = useState<string | null>(null);
+    const [hasProfile, setHasProfile] = useState<boolean | null>(null);
     const [loading, setLoading] = useState(false);
 
+    const appPassword = connected ? 'wallet-authorized' : null;
+
     const refreshProfile = async () => {
-        if (!api) {
-            setShieldedAddress(null);
+        if (!address) {
+            setBurnerIdentity(null);
+            setBurnerAddress(null);
+            setEncryptedBurnerKey(null);
+            setHasProfile(null);
             return;
         }
         setLoading(true);
         try {
-            setShieldedAddress((await api.getShieldedAddresses()).shieldedAddress);
+            const profile = await getUserProfile(address);
+            setHasProfile(Boolean(profile));
+
+            if (!profile?.burner_address || !profile?.encrypted_burner_key) {
+                setBurnerIdentity(null);
+                setBurnerAddress(null);
+                setEncryptedBurnerKey(null);
+                return;
+            }
+            setEncryptedBurnerKey(profile.encrypted_burner_key);
+
+            // Restore the same identity from its stored (encrypted) mnemonic
+            // rather than trusting the stored address alone — the mnemonic
+            // is the actual source of truth, the address is a display cache.
+            if (!appPassword) return;
+            const mnemonic = await decryptWithPassword(profile.encrypted_burner_key, appPassword).catch(() => null);
+            if (!mnemonic) return;
+            const identity = await startBurnerWallet(mnemonic);
+            const derivedAddress = await getBurnerAddress(identity);
+            setBurnerIdentity(identity);
+            setBurnerAddress(derivedAddress);
+            setDecryptedBurnerKey(mnemonic);
+        } catch (error) {
+            console.error('Failed to load burner profile', error);
         } finally {
             setLoading(false);
         }
@@ -48,28 +97,32 @@ export function BurnerWalletProvider({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         void refreshProfile();
-    }, [api]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [address]);
 
     const value = useMemo<PrivacyWalletContextValue>(() => ({
-        burnerAddress: shieldedAddress,
-        decryptedBurnerKey: null,
-        setDecryptedBurnerKey: () => undefined,
-        encryptedBurnerKey: null,
+        burnerAddress,
+        decryptedBurnerKey,
+        setDecryptedBurnerKey,
+        encryptedBurnerKey,
+        burnerIdentity,
         refreshProfile,
-        fetchedFromChain: Boolean(shieldedAddress),
-        hasOnChainRecord: false,
+        fetchedFromChain: Boolean(burnerAddress),
+        hasOnChainRecord: Boolean(burnerAddress),
         setHasOnChainRecord: () => undefined,
-        appPassword: connected ? 'wallet-authorized' : null,
+        appPassword,
         setAppPassword: () => undefined,
         isUnlocked: connected,
         setIsUnlocked: () => undefined,
-        hasProfile: connected,
+        hasProfile,
         userProfileMainAddress: address,
         isAutoUnlocking: loading,
-        decryptedBurnerAddress: shieldedAddress,
-        hasBurnerOnChainRecord: false,
-    }), [address, connected, loading, shieldedAddress]);
+        decryptedBurnerAddress: burnerAddress,
+        hasBurnerOnChainRecord: Boolean(burnerAddress),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }), [address, appPassword, burnerAddress, burnerIdentity, connected, decryptedBurnerKey, encryptedBurnerKey, hasProfile, loading]);
 
+    void api;
     return <PrivacyWalletContext.Provider value={value}>{children}</PrivacyWalletContext.Provider>;
 }
 
