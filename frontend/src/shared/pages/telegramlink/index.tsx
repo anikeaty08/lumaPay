@@ -12,17 +12,9 @@ import { useBurnerWallet } from '../../hooks/wallet/BurnerWalletProvider';
 import { PasswordPrompt } from '../../components/auth/PasswordPrompt';
 import { encryptWithPassword } from '../../utils/core/crypto';
 
-function toBase64(bytes: Uint8Array): string {
-    let binary = '';
-    bytes.forEach((byte) => {
-        binary += String.fromCharCode(byte);
-    });
-    return window.btoa(binary);
-}
-
 export default function TelegramLinkPage() {
     const [searchParams] = useSearchParams();
-    const { address, wallet } = useWallet();
+    const { address, api } = useWallet();
     const { isUnlocked, isAutoUnlocking, appPassword } = useBurnerWallet();
     const [session, setSession] = useState<TelegramLinkSession | null>(null);
     const [loading, setLoading] = useState(true);
@@ -113,7 +105,7 @@ export default function TelegramLinkPage() {
             return;
         }
 
-        if (!wallet?.adapter?.signMessage) {
+        if (!api?.signData) {
             toast.error('This wallet does not expose message signing.');
             return;
         }
@@ -122,13 +114,15 @@ export default function TelegramLinkPage() {
             setSubmitting(true);
             setError(null);
 
-            const signatureResult = await wallet.adapter.signMessage(new TextEncoder().encode(session.message));
-            const signatureBytes = signatureResult instanceof Uint8Array
-                ? signatureResult
-                : (signatureResult as any)?.signature;
-
-            if (!signatureBytes) {
-                throw new Error('The wallet did not return a usable signature.');
+            // api.signData (not wallet.adapter.signMessage) — the same
+            // pattern midnight/auth.ts already uses for real wallet-session
+            // signing. signMessage's return here never included a verifying
+            // key, and a Midnight address can't be reversed back into one,
+            // so a backend could never actually verify this signature
+            // cryptographically with the old call.
+            const signed = await api.signData(session.message, { encoding: 'text', keyType: 'unshielded' });
+            if (signed.data !== session.message) {
+                throw new Error('Wallet signed unexpected link data.');
             }
 
             const clientCiphertext = appPassword
@@ -138,7 +132,8 @@ export default function TelegramLinkPage() {
             const result = await completeTelegramLinkSession({
                 token,
                 midnight_address: address,
-                signature_base64: toBase64(signatureBytes),
+                signature: signed.signature,
+                verifying_key: signed.verifyingKey,
                 midnight_address_client_ciphertext: clientCiphertext
             });
 

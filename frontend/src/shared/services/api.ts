@@ -334,7 +334,10 @@ export const fetchTelegramLinkSession = async (token: string): Promise<TelegramL
 export const completeTelegramLinkSession = async (payload: {
     token: string;
     midnight_address: string;
-    signature_base64: string;
+    /** Hex-encoded, from ConnectedAPI.signData — not actually base64, despite the historical field name. */
+    signature: string;
+    /** The signing wallet's verifying key (hex) — required to actually verify the signature server-side; a Midnight address alone can't be reversed back into one. */
+    verifying_key: string;
     username?: string;
     midnight_address_client_ciphertext?: string;
 }): Promise<CompleteTelegramLinkSessionResponse> => {
