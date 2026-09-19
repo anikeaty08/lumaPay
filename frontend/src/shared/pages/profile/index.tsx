@@ -29,6 +29,7 @@ import { InvoiceTable } from './components/InvoiceTable';
 import { PaidInvoicesTable } from './components/PaidInvoicesTable';
 import { DashboardChatbot } from './components/DashboardChatbot';
 import { ReportConfigModal } from './components/modals/ReportConfigModal';
+import { ImportRecoveryButton } from './components/ImportRecoveryButton';
 
 const Profile = () => {
     const navigate = useNavigate();
@@ -600,6 +601,9 @@ const Profile = () => {
 
                                 <div className="overflow-x-auto min-h-[300px]">
                                     <div style={{ display: ui.activeTab === 'created' ? 'block' : 'none' }}>
+                                    <div className="mb-3 flex justify-end">
+                                        <ImportRecoveryButton onImported={() => { void data.fetchCreatedInvoices(); }} />
+                                    </div>
                                     <InvoiceTable
                                             invoices={data.loadingBurner ? [] : agg.combinedInvoices}
                                             loading={data.loadingCreated || data.loadingTransactions || data.loadingBurner}
