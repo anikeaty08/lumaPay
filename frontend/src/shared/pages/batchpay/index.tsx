@@ -304,66 +304,95 @@ export const BatchPayPage = () => {
             throw new Error('Connect a Midnight wallet before running BatchPay.');
         }
 
+        let succeeded = 0;
+        let failed = 0;
+
         for (const tokenType of [0]) {
             const tokenRows = readyRows.filter((row) => getEffectiveTokenType(row) === tokenType);
             if (!tokenRows.length) continue;
 
             for (let index = 0; index < tokenRows.length; index += 1) {
                 const row = tokenRows[index];
-                assertNativeBatchRow(row);
 
-                updateRow(row.id, { executionState: 'processing', executionMessage: 'Authorizing payment...', txId: null });
-                setBatchStatus(`Authorizing ${TOKEN_LABELS[getTokenCodeFromType(tokenType)]} payment ${index + 1}/${tokenRows.length}...`);
-                pushBatchLog(`Requesting wallet approval for ${TOKEN_LABELS[getTokenCodeFromType(tokenType)]} payment ${index + 1} of ${tokenRows.length}.`);
-
-                const receipt = await payInvoiceOnChain(api, row.paymentOpening!);
-                const transactionId = receipt.transactionId;
-                if (!transactionId) {
-                    throw new Error(`Missing transaction ID for invoice ${row.hash}.`);
-                }
-
-                updateRow(row.id, { executionState: 'processing', executionMessage: 'Confirmed on-chain. Syncing invoice record...', txId: transactionId });
-                pushBatchLog(`Invoice ${shorten(row.hash)} confirmed on-chain. Syncing payment tx id to the database.`);
-
+                // Each row is isolated: a wallet rejection, insufficient
+                // balance, or DB hiccup on invoice N used to throw out of
+                // this whole loop, silently skipping every invoice after it
+                // even though they have nothing to do with N's failure (and
+                // even though N's on-chain payment may have already gone
+                // through). Now it's marked 'failed' and the batch continues.
                 try {
-                    const updatePayload: Record<string, unknown> = {
-                        payment_tx_ids: [transactionId],
-                        payer_address: payerOwner,
-                        escrow_coin: receipt.escrowCoin,
-                    };
+                    assertNativeBatchRow(row);
 
-                    if (row.invoiceType !== 1 && row.invoiceType !== 2) {
-                        updatePayload.status = 'SETTLED';
+                    updateRow(row.id, { executionState: 'processing', executionMessage: 'Authorizing payment...', txId: null });
+                    setBatchStatus(`Authorizing ${TOKEN_LABELS[getTokenCodeFromType(tokenType)]} payment ${index + 1}/${tokenRows.length}...`);
+                    pushBatchLog(`Requesting wallet approval for ${TOKEN_LABELS[getTokenCodeFromType(tokenType)]} payment ${index + 1} of ${tokenRows.length}.`);
+
+                    const receipt = await payInvoiceOnChain(api, row.paymentOpening!);
+                    const transactionId = receipt.transactionId;
+                    if (!transactionId) {
+                        throw new Error(`Missing transaction ID for invoice ${row.hash}.`);
                     }
 
-                    await updateInvoiceStatus(row.hash, updatePayload);
-                    pushBatchLog(`Database updated for invoice ${shorten(row.hash)} with payment tx ${shorten(transactionId)}.`);
-                } catch (syncError: any) {
-                    const syncMessage = syncError?.message || 'Unknown invoice sync failure';
-                    updateRow(row.id, {
-                        executionState: 'failed',
-                        executionMessage: 'Payment confirmed on-chain, but saving the tx id to the database failed.',
-                        txId: transactionId
-                    });
-                    pushBatchLog(`Invoice ${shorten(row.hash)} was paid on-chain, but database sync failed: ${syncMessage}`);
-                    throw new Error(`Invoice ${shorten(row.hash)} was paid on-chain, but the payment tx id could not be stored in the database: ${syncMessage}`);
+                    updateRow(row.id, { executionState: 'processing', executionMessage: 'Confirmed on-chain. Syncing invoice record...', txId: transactionId });
+                    pushBatchLog(`Invoice ${shorten(row.hash)} confirmed on-chain. Syncing payment tx id to the database.`);
+
+                    try {
+                        const updatePayload: Record<string, unknown> = {
+                            payment_tx_ids: [transactionId],
+                            payer_address: payerOwner,
+                            escrow_coin: receipt.escrowCoin,
+                        };
+
+                        if (row.invoiceType !== 1 && row.invoiceType !== 2) {
+                            updatePayload.status = 'SETTLED';
+                        }
+
+                        await updateInvoiceStatus(row.hash, updatePayload);
+                        pushBatchLog(`Database updated for invoice ${shorten(row.hash)} with payment tx ${shorten(transactionId)}.`);
+                    } catch (syncError: any) {
+                        const syncMessage = syncError?.message || 'Unknown invoice sync failure';
+                        // The payment itself already succeeded on-chain (real
+                        // value moved) — only the DB sync failed. Keep the
+                        // txId visible and let the batch continue instead of
+                        // treating this as a fatal, batch-halting error.
+                        updateRow(row.id, {
+                            executionState: 'failed',
+                            executionMessage: 'Payment confirmed on-chain, but saving the tx id to the database failed. Keep this transaction ID — it settled.',
+                            txId: transactionId
+                        });
+                        pushBatchLog(`Invoice ${shorten(row.hash)} was paid on-chain, but database sync failed: ${syncMessage}`);
+                        failed += 1;
+                        continue;
+                    }
+
+                    localStorage.setItem(`lumapay:receipt:${row.hash}:${transactionId}`, JSON.stringify({
+                        ...receipt,
+                        requestId: row.hash,
+                        kind: 'invoice',
+                        payerAddress: payerOwner,
+                        createdAt: new Date().toISOString()
+                    }));
+
+                    updateRow(row.id, { executionState: 'paid', executionMessage: 'Paid successfully.', txId: transactionId });
+                    pushBatchLog(`Invoice ${shorten(row.hash)} paid successfully.`);
+                    succeeded += 1;
+                } catch (rowError: any) {
+                    const rowMessage = extractErrorDetails(rowError) || rowError?.message || 'Payment failed.';
+                    updateRow(row.id, { executionState: 'failed', executionMessage: rowMessage, txId: null });
+                    pushBatchLog(`Invoice ${shorten(row.hash)} failed: ${rowMessage}`);
+                    failed += 1;
                 }
-
-                localStorage.setItem(`lumapay:receipt:${row.hash}:${transactionId}`, JSON.stringify({
-                    ...receipt,
-                    requestId: row.hash,
-                    kind: 'invoice',
-                    payerAddress: payerOwner,
-                    createdAt: new Date().toISOString()
-                }));
-
-                updateRow(row.id, { executionState: 'paid', executionMessage: 'Paid successfully.', txId: transactionId });
-                pushBatchLog(`Invoice ${shorten(row.hash)} paid successfully.`);
             }
         }
 
-        setBatchStatus('Batch payment complete. Every queued invoice was submitted through the connected Midnight wallet.');
-        pushBatchLog('Batch payment complete. Every queued invoice was submitted through the connected Midnight wallet.');
+        const summary = failed === 0
+            ? `Batch payment complete. All ${succeeded} invoice(s) were paid successfully.`
+            : `Batch payment finished with ${succeeded} paid and ${failed} failed. Check each row above for details — failed rows can be retried without re-paying the ones that already succeeded.`;
+        setBatchStatus(summary);
+        pushBatchLog(summary);
+        if (failed > 0 && succeeded === 0) {
+            throw new Error(summary);
+        }
     };
 
     const handlePayAll = async () => {
