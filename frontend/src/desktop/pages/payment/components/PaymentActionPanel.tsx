@@ -99,10 +99,13 @@ export const PaymentActionPanel = ({
                     Wallet
                 </button>
                 <button
-                    onClick={() => handleSelectPaymentMethod('card')}
-                    className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all ${paymentMethod === 'card' ? 'bg-white/10 text-white shadow-md' : 'text-gray-500 hover:text-white/80'}`}
+                    type="button"
+                    disabled
+                    title="LumaPay Card checkout isn't live yet on this Preprod build"
+                    className="flex-1 py-3 text-sm font-bold rounded-lg text-gray-600 cursor-not-allowed opacity-50 flex items-center justify-center gap-1.5"
                 >
                     LumaPay Card
+                    <span className="text-[9px] font-black uppercase tracking-wider text-gray-600">Soon</span>
                 </button>
                 <button
                     onClick={() => handleSelectPaymentMethod('giftcard')}
