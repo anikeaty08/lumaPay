@@ -12,7 +12,7 @@ export function useBurnerActions() {
         setDecryptedBurnerKey, refreshProfile, fetchedFromChain,
         hasOnChainRecord, appPassword,
         decryptedBurnerAddress, hasBurnerOnChainRecord,
-        burnerIdentity
+        burnerIdentity, isUnlocked, hasProfile
     } = useBurnerWallet();
 
     const [isGenerating, setIsGenerating] = useState(false);
@@ -207,7 +207,7 @@ export function useBurnerActions() {
 
     return {
         address, burnerAddress, decryptedBurnerKey, fetchedFromChain, hasOnChainRecord,
-        decryptedBurnerAddress, hasBurnerOnChainRecord,
+        decryptedBurnerAddress, hasBurnerOnChainRecord, isUnlocked, hasProfile,
         isGenerating, isDecrypting, isBackingUp, isSweeping, copied,
         error, setError,
         showGenerateModal, setShowGenerateModal,

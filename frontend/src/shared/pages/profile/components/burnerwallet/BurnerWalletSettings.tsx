@@ -3,12 +3,26 @@ import { GlassCard } from '../../../../components/ui/GlassCard';
 import { useBurnerActions } from '../../../../hooks/profile/useBurnerActions';
 import ConfirmModal from '../../../../components/modals/ConfirmModal';
 import { SweepModal } from './SweepModal';
+import { PasswordPrompt } from '../../../../components/auth/PasswordPrompt';
 import type { BurnerWalletSettingsProps } from '../../../../types/burner';
 
 export const BurnerWalletSettings: React.FC<BurnerWalletSettingsProps> = ({ itemVariants }) => {
     const a = useBurnerActions();
 
     if (!a.address) return null;
+
+    // Burner wallet generation encrypts its mnemonic with a real,
+    // user-chosen password (PasswordPrompt) rather than the previous
+    // hardcoded placeholder — gate this section behind it, since without a
+    // password there's nothing safe to encrypt the mnemonic with. hasProfile
+    // === null means still loading; don't flash the prompt during that beat.
+    if (!a.isUnlocked && a.hasProfile !== null) {
+        return (
+            <GlassCard variants={itemVariants} className="p-5 mb-8 border border-neon-primary/20 bg-neon-primary/5">
+                <PasswordPrompt variant="compact" />
+            </GlassCard>
+        );
+    }
 
     return (
         <>

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useWallet } from './WalletProvider';
 import { getUserProfile } from '../../services/api';
+import type { UserProfile } from '../../types/user';
 import { decryptWithPassword } from '../../utils/core/crypto';
 import { startBurnerWallet, getBurnerAddress, type BurnerIdentity } from '../../../midnight/burnerWallet';
 
@@ -21,6 +22,7 @@ interface PrivacyWalletContextValue {
     isUnlocked: boolean;
     setIsUnlocked: (value: boolean) => void;
     hasProfile: boolean | null;
+    /** The ciphertext password-verification value (encryptWithPassword(address, appPassword)) stored as the profile's main_address — NOT the plaintext wallet address. PasswordPrompt decrypts this to check a password. */
     userProfileMainAddress: string | null;
     isAutoUnlocking: boolean;
     decryptedBurnerAddress: string | null;
@@ -37,68 +39,87 @@ const PrivacyWalletContext = createContext<PrivacyWalletContextValue | undefined
  * leaves the browser unencrypted, and is persisted to the backend only as
  * ciphertext (encryptWithPassword) keyed by the hash of the main address.
  *
- * NOTE on appPassword: this still uses the pre-existing "wallet-authorized"
- * placeholder (see below) rather than a real user-chosen password — the
- * card-wallet feature also reads appPassword from this same context, and
- * introducing a real password is a shared-system change (affects cards too)
- * that deserves its own dedicated pass, not a rushed edit bundled into this
- * one. The mnemonic is still real and independent; only the password
- * protecting its at-rest ciphertext is the known-weak part.
+ * appPassword is a real, user-chosen password now (not the old hardcoded
+ * "wallet-authorized" placeholder) — collected and verified by
+ * PasswordPrompt.tsx, which already fully implements create/confirm/unlock
+ * and was already calling setAppPassword/setIsUnlocked; they were just
+ * discarded as no-ops here. CardWalletProvider.tsx reads appPassword from
+ * this same context, so this also makes card encryption real. Caveat: any
+ * card data already encrypted under the old hardcoded constant (from
+ * before this fix) will not decrypt with a newly-chosen real password —
+ * there is no way to detect or migrate that from here, since it depends on
+ * production data this environment has no visibility into.
  */
 export function BurnerWalletProvider({ children }: { children: ReactNode }) {
-    const { api, address, connected } = useWallet();
+    const { address, connected } = useWallet();
     const [burnerIdentity, setBurnerIdentity] = useState<BurnerIdentity | null>(null);
     const [burnerAddress, setBurnerAddress] = useState<string | null>(null);
     const [decryptedBurnerKey, setDecryptedBurnerKey] = useState<string | null>(null);
     const [encryptedBurnerKey, setEncryptedBurnerKey] = useState<string | null>(null);
+    const [profile, setProfile] = useState<UserProfile | null>(null);
     const [hasProfile, setHasProfile] = useState<boolean | null>(null);
     const [loading, setLoading] = useState(false);
-
-    const appPassword = connected ? 'wallet-authorized' : null;
+    const [appPassword, setAppPassword] = useState<string | null>(null);
+    const [isUnlocked, setIsUnlocked] = useState(false);
 
     const refreshProfile = async () => {
         if (!address) {
-            setBurnerIdentity(null);
-            setBurnerAddress(null);
-            setEncryptedBurnerKey(null);
+            setProfile(null);
             setHasProfile(null);
             return;
         }
         setLoading(true);
         try {
-            const profile = await getUserProfile(address);
-            setHasProfile(Boolean(profile));
-
-            if (!profile?.burner_address || !profile?.encrypted_burner_key) {
-                setBurnerIdentity(null);
-                setBurnerAddress(null);
-                setEncryptedBurnerKey(null);
-                return;
-            }
-            setEncryptedBurnerKey(profile.encrypted_burner_key);
-
-            // Restore the same identity from its stored (encrypted) mnemonic
-            // rather than trusting the stored address alone — the mnemonic
-            // is the actual source of truth, the address is a display cache.
-            if (!appPassword) return;
-            const mnemonic = await decryptWithPassword(profile.encrypted_burner_key, appPassword).catch(() => null);
-            if (!mnemonic) return;
-            const identity = await startBurnerWallet(mnemonic);
-            const derivedAddress = await getBurnerAddress(identity);
-            setBurnerIdentity(identity);
-            setBurnerAddress(derivedAddress);
-            setDecryptedBurnerKey(mnemonic);
+            const nextProfile = await getUserProfile(address);
+            setProfile(nextProfile);
+            setHasProfile(Boolean(nextProfile));
         } catch (error) {
-            console.error('Failed to load burner profile', error);
+            console.error('Failed to load user profile', error);
         } finally {
             setLoading(false);
         }
     };
 
     useEffect(() => {
+        setAppPassword(null);
+        setIsUnlocked(false);
         void refreshProfile();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [address]);
+
+    // Restore the burner identity once both the profile and a real password
+    // are available. Split out from refreshProfile (rather than decrypting
+    // inline right after setAppPassword) so this reacts to appPassword
+    // changing without depending on a stale closure over the password that
+    // was current when refreshProfile was last called.
+    useEffect(() => {
+        let cancelled = false;
+        if (!profile?.encrypted_burner_key || !appPassword) {
+            setBurnerIdentity(null);
+            setBurnerAddress(null);
+            setEncryptedBurnerKey(profile?.encrypted_burner_key ?? null);
+            return;
+        }
+        setEncryptedBurnerKey(profile.encrypted_burner_key);
+        (async () => {
+            try {
+                const mnemonic = await decryptWithPassword(profile.encrypted_burner_key!, appPassword);
+                if (cancelled) return;
+                // The mnemonic is the actual source of truth; the stored
+                // address is only a display cache re-derived here.
+                const identity = await startBurnerWallet(mnemonic);
+                if (cancelled) return;
+                const derivedAddress = await getBurnerAddress(identity);
+                if (cancelled) return;
+                setBurnerIdentity(identity);
+                setBurnerAddress(derivedAddress);
+                setDecryptedBurnerKey(mnemonic);
+            } catch (error) {
+                if (!cancelled) console.error('Failed to restore burner wallet from stored mnemonic', error);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [profile, appPassword]);
 
     const value = useMemo<PrivacyWalletContextValue>(() => ({
         burnerAddress,
@@ -111,18 +132,17 @@ export function BurnerWalletProvider({ children }: { children: ReactNode }) {
         hasOnChainRecord: Boolean(burnerAddress),
         setHasOnChainRecord: () => undefined,
         appPassword,
-        setAppPassword: () => undefined,
-        isUnlocked: connected,
-        setIsUnlocked: () => undefined,
+        setAppPassword,
+        isUnlocked,
+        setIsUnlocked,
         hasProfile,
-        userProfileMainAddress: address,
+        userProfileMainAddress: profile?.main_address || null,
         isAutoUnlocking: loading,
         decryptedBurnerAddress: burnerAddress,
         hasBurnerOnChainRecord: Boolean(burnerAddress),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }), [address, appPassword, burnerAddress, burnerIdentity, connected, decryptedBurnerKey, encryptedBurnerKey, hasProfile, loading]);
+    }), [address, appPassword, burnerAddress, burnerIdentity, connected, decryptedBurnerKey, encryptedBurnerKey, hasProfile, isUnlocked, loading, profile]);
 
-    void api;
     return <PrivacyWalletContext.Provider value={value}>{children}</PrivacyWalletContext.Provider>;
 }
 

@@ -8,6 +8,8 @@ import { GlassCard } from '../../../components/ui/GlassCard';
 import { Shimmer } from '../../../components/ui/Shimmer';
 import ConfirmModal from '../../../components/modals/ConfirmModal';
 import { useCardWallet } from '../../../hooks/wallet/CardWalletProvider';
+import { useBurnerWallet } from '../../../hooks/wallet/BurnerWalletProvider';
+import { PasswordPrompt } from '../../../components/auth/PasswordPrompt';
 import type { CardTokenCode } from '../../../types/tokens';
 import { CARD_PIN_LENGTH, CARD_SECRET_MIN_LENGTH } from '../../../utils/card/cardInputLimits';
 import { CARD_HINT_MAX_BYTES, CARD_LABEL_MAX_BYTES, getUtf8ByteLength } from '../../../utils/core/compactInputLimits';
@@ -171,6 +173,13 @@ export const CardWalletPanel: React.FC<CardWalletPanelProps> = ({ itemVariants }
         sweepCardFundsToMain,
         deleteCard
     } = useCardWallet();
+    // Card creation encrypts the card's owner secret/number/label with
+    // appPassword — a real, user-chosen password now (see
+    // BurnerWalletProvider), not the previous hardcoded placeholder. Aliased
+    // to avoid colliding with useCardWallet's own (differently-scoped)
+    // isUnlocked, which is about a specific card's decrypted key, not
+    // whether the app-level password has been entered this session.
+    const { isUnlocked: appUnlocked, hasProfile: appHasProfile } = useBurnerWallet();
 
     const [pin, setPin] = useState('');
     const [secret, setSecret] = useState('');
@@ -374,6 +383,14 @@ export const CardWalletPanel: React.FC<CardWalletPanelProps> = ({ itemVariants }
                     <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/10 border-t-orange-400" />
                     <p className="text-xs font-bold uppercase tracking-widest text-gray-500">Loading card</p>
                 </div>
+            </GlassCard>
+        );
+    }
+
+    if (!appUnlocked && appHasProfile !== null) {
+        return (
+            <GlassCard variants={itemVariants} className="p-5 border border-orange-400/20 bg-orange-500/5">
+                <PasswordPrompt variant="compact" />
             </GlassCard>
         );
     }
