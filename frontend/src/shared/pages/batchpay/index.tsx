@@ -384,6 +384,9 @@ export const BatchPayPage = () => {
                         requestId: row.hash,
                         kind: 'invoice',
                         payerAddress: payerOwner,
+                        merchant: row.merchant,
+                        amount: row.paymentOpening!.amount,
+                        token: row.paymentOpening!.token,
                         createdAt: new Date().toISOString()
                     }));
 

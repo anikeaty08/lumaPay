@@ -168,6 +168,9 @@ export const useSharedPayment = () => {
         setError(null);
         try {
             const token = tokenFromType(selectedToken ?? invoice.tokenType);
+            const paidAmountAtomic = opening.kind === 'invoice'
+                ? opening.amount
+                : String(BigInt(Math.round((invoice.amount > 0 ? invoice.amount : Number(donationAmount)) * 1_000_000)));
             appendStatus('Generating the private payment proof…');
             const result = opening.kind === 'invoice'
                 ? await (async () => {
@@ -180,7 +183,7 @@ export const useSharedPayment = () => {
                     const contribution = await contributeOnChain(
                         api,
                         opening,
-                        BigInt(Math.round((invoice.amount > 0 ? invoice.amount : Number(donationAmount)) * 1_000_000)),
+                        BigInt(paidAmountAtomic),
                         token
                     );
                     appendStatus('Registering the contribution for merchant claim...');
@@ -190,11 +193,19 @@ export const useSharedPayment = () => {
             setTxId(result.transactionId);
             setPaymentSecret('paymentSecret' in result ? result.paymentSecret : result.contributionSecret);
             setReceiptHash(result.receiptCommitment);
+            // amount/token/merchant aren't on `result` itself (the on-chain
+            // receipt only proves the payment happened, not what it was
+            // for) — added here from `invoice`/`opening`, which are the
+            // only place this data exists, so useProfileData.ts's payer
+            // receipt list has something to actually display.
             localStorage.setItem(`lumapay:receipt:${invoice.hash}:${result.transactionId}`, JSON.stringify({
                 ...result,
                 requestId: invoice.hash,
                 kind: opening.kind,
                 payerAddress: publicKey,
+                merchant: invoice.merchant,
+                amount: paidAmountAtomic,
+                token,
                 payerNote: notes.payerNote?.trim() || null,
                 merchantNote: notes.merchantNote?.trim() || null,
                 createdAt: new Date().toISOString()
