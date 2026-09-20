@@ -154,28 +154,12 @@ export const fetchInvoices = async (status?: string): Promise<Invoice[]> => {
     ].sort((left, right) => Date.parse(right.created_at || '') - Date.parse(left.created_at || ''));
 };
 
-export const fetchInvoiceByHash = async (hash: string): Promise<Invoice> => {
-    const response = await fetch(`${API_URL}/invoice/${hash}`);
-
-    if (!response.ok) {
-        throw new Error('Failed to fetch invoice');
-    }
-    return response.json();
-};
-
-export const createInvoice = async (data: Partial<Invoice>): Promise<Invoice> => {
-    const response = await fetch(`${API_URL}/invoices`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-    });
-    if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Failed to create invoice');
-    }
-    return response.json();
-};
-
+// Note for anyone touching invoice/campaign API calls: this file has two
+// unrelated API base URLs. MIDNIGHT_API_URL (imported above) is real and
+// matches the backend's actual /api/v1/... routes; the plain API_URL below
+// is a stale pre-v1 base with no matching backend routes at all. Every
+// function below that still uses it (updateInvoiceStatus) is effectively
+// dead — confirmed by tracing each of its callers.
 export const updateInvoiceStatus = async (hash: string, data: Partial<Invoice>): Promise<Invoice> => {
     const response = await fetch(`${API_URL}/invoices/${hash}`, {
         method: 'PATCH',
@@ -185,22 +169,6 @@ export const updateInvoiceStatus = async (hash: string, data: Partial<Invoice>):
     if (!response.ok) {
         const err = await response.json();
         throw new Error(err.error || 'Failed to update invoice');
-    }
-    return response.json();
-};
-
-export const deleteInvoice = async (
-    hash: string,
-    data: { merchant_address_hash: string; deletion_transaction_id?: string }
-): Promise<{ success: boolean; invoice_hash: string; deletion_transaction_id: string | null }> => {
-    const response = await fetch(`${API_URL}/invoices/${hash}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-    });
-    if (!response.ok) {
-        const err = await response.json().catch(() => null);
-        throw new Error(err?.error || 'Failed to delete invoice');
     }
     return response.json();
 };

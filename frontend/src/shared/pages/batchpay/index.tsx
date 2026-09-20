@@ -18,7 +18,7 @@ import { GlassCard } from '../../components/ui/GlassCard';
 import { Button } from '../../components/ui/Button';
 import { PaymentActivityConsole } from '../../components/payments/PaymentActivityConsole';
 import { Input } from '../../components/ui/Input';
-import { fetchInvoiceByHash, updateInvoiceStatus } from '../../services/api';
+import { reportInvoicePayment } from '../../hooks/payments/useSharedPayment';
 import { getInvoiceData, getInvoiceHashFromMapping } from '../../utils/midnight/midnightUtils';
 import { ANY_ALLOWED_TOKENS, getAllowedTokensForInvoice, getTokenCodeFromType, getTokenLabel, getTokenTypeFromCode, TOKEN_LABELS } from '../../utils/payments/tokens';
 import { parsePaymentLink } from '../../utils/payments/paymentLinks';
@@ -167,6 +167,15 @@ export const BatchPayPage = () => {
         if (tokenType !== 0) {
             throw new Error('BatchPay is NIGHT-only on Preprod until USDCx/USAD token contracts are available.');
         }
+        // Multi Pay/Donation links are campaigns (a different contract,
+        // paid via a contribution circuit) — BatchPay's execution below
+        // only ever submits the standard-invoice payment circuit, so these
+        // can never actually go through here. Fail clearly up front rather
+        // than with the generic "incomplete payment opening" message,
+        // which would otherwise wrongly suggest the link itself was bad.
+        if (row.invoiceType !== 0) {
+            throw new Error(`Invoice ${shorten(row.hash)} is a Multi Pay/Donation campaign — BatchPay only supports standard invoices right now. Pay it individually from its own link.`);
+        }
         if (!row.paymentOpening) {
             throw new Error(`Invoice ${shorten(row.hash)} is missing its native Midnight payment opening.`);
         }
@@ -186,12 +195,12 @@ export const BatchPayPage = () => {
         }
 
         let hash = parsed.hash;
-        let merchant = parsed.merchant;
-        let salt = parsed.salt;
-        let amount = parsed.amount;
-        let invoiceType = parsed.invoiceType;
-        let tokenType = parsed.tokenType;
-        let memo = parsed.memo;
+        const merchant = parsed.merchant;
+        const salt = parsed.salt;
+        const amount = parsed.amount;
+        const invoiceType = parsed.invoiceType;
+        const tokenType = parsed.tokenType;
+        const memo = parsed.memo;
 
         if (!hash && salt) {
             hash = await getInvoiceHashFromMapping(salt);
@@ -200,29 +209,39 @@ export const BatchPayPage = () => {
             throw new Error('Could not resolve the invoice hash from that link.');
         }
 
-        const [dbInvoice, chainInvoice] = await Promise.all([
-            fetchInvoiceByHash(hash).catch(() => null),
-            getInvoiceData(hash).catch(() => null),
-        ]);
-
-        merchant = merchant || dbInvoice?.designated_address || dbInvoice?.merchant_address || '';
-        salt = salt || dbInvoice?.salt || '';
-        memo = memo || dbInvoice?.memo || '';
-        invoiceType = chainInvoice?.invoiceType ?? dbInvoice?.invoice_type ?? invoiceType;
-        tokenType = chainInvoice?.tokenType ?? dbInvoice?.token_type ?? tokenType;
+        // No backend endpoint re-exposes a private payment opening for an
+        // arbitrary invoice ID (by design), so the link's own decoded
+        // `opening` is the only source for the fields a payment actually
+        // needs (merchantPrivateIdentity, invoiceNonce/invoiceRandomness).
+        // This used to come from fetchInvoiceByHash(), which called a route
+        // that doesn't exist on the backend and, even fixed, wouldn't have
+        // returned this data anyway — so paymentOpening was always null and
+        // no invoice could ever actually be paid through BatchPay.
+        const chainInvoice = await getInvoiceData(hash).catch(() => null);
 
         let finalAmount = 0;
         if (amount) {
             if (amount.includes('u')) finalAmount = Number(amount.split('u')[0]) / 1_000_000;
             else finalAmount = Number(amount);
         }
-        if (dbInvoice?.amount !== undefined) {
-            finalAmount = dbInvoice.invoice_type === 2 ? 0 : Number(dbInvoice.amount);
-        }
 
         if (!merchant || !salt) {
             throw new Error(`Missing merchant or salt for invoice ${hash}.`);
         }
+
+        const openingPayload = parsed.opening;
+        const paymentOpening: InvoicePaymentOpening | null = openingPayload && openingPayload.kind === 'invoice'
+            ? {
+                invoiceId: String(openingPayload.invoiceId ?? hash),
+                amount: String(openingPayload.amount ?? ''),
+                token: String(openingPayload.token ?? 'NIGHT'),
+                tokenId: typeof openingPayload.tokenId === 'string' ? openingPayload.tokenId : undefined,
+                expiry: typeof openingPayload.expiry === 'string' ? openingPayload.expiry : undefined,
+                merchantPrivateIdentity: String(openingPayload.merchantPrivateIdentity ?? ''),
+                invoiceNonce: String(openingPayload.invoiceNonce ?? ''),
+                invoiceRandomness: String(openingPayload.invoiceRandomness ?? ''),
+            }
+            : null;
 
         setRows((current) => {
             if (current.some((row) => row.hash === hash)) return current;
@@ -239,14 +258,14 @@ export const BatchPayPage = () => {
                     memo,
                     tokenType,
                     invoiceType,
-                    status: chainInvoice?.status === 1 || dbInvoice?.status === 'SETTLED' ? 'SETTLED' : 'OPEN',
+                    status: chainInvoice?.status === 1 ? 'SETTLED' : 'OPEN',
                     source,
                     selectedTokenType: tokenType === 3 ? defaultToken : tokenType,
                     donationAmount: invoiceType === 2 ? '' : String(finalAmount || ''),
                     executionState: 'idle',
                     executionMessage: null,
                     txId: null,
-                    paymentOpening: (dbInvoice?.payment_opening ?? null) as InvoicePaymentOpening | null,
+                    paymentOpening,
                 },
             ];
         });
@@ -333,21 +352,16 @@ export const BatchPayPage = () => {
                         throw new Error(`Missing transaction ID for invoice ${row.hash}.`);
                     }
 
-                    updateRow(row.id, { executionState: 'processing', executionMessage: 'Confirmed on-chain. Syncing invoice record...', txId: transactionId });
-                    pushBatchLog(`Invoice ${shorten(row.hash)} confirmed on-chain. Syncing payment tx id to the database.`);
+                    updateRow(row.id, { executionState: 'processing', executionMessage: 'Confirmed on-chain. Recording for merchant claim...', txId: transactionId });
+                    pushBatchLog(`Invoice ${shorten(row.hash)} confirmed on-chain. Reporting the payment so the merchant can claim it.`);
 
                     try {
-                        const updatePayload: Record<string, unknown> = {
-                            payment_tx_ids: [transactionId],
-                            payer_address: payerOwner,
-                            escrow_coin: receipt.escrowCoin,
-                        };
-
-                        if (row.invoiceType !== 1 && row.invoiceType !== 2) {
-                            updatePayload.status = 'SETTLED';
-                        }
-
-                        await updateInvoiceStatus(row.hash, updatePayload);
+                        // The public, self-verifying reconcile endpoint —
+                        // not a raw status PATCH — since this is also the
+                        // only thing that ever delivers the merchant's
+                        // escrow claim material to the backend for a
+                        // directly-paid invoice. See its backend comment.
+                        await reportInvoicePayment(row.hash, receipt);
                         pushBatchLog(`Database updated for invoice ${shorten(row.hash)} with payment tx ${shorten(transactionId)}.`);
                     } catch (syncError: any) {
                         const syncMessage = syncError?.message || 'Unknown invoice sync failure';

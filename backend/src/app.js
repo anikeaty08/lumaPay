@@ -580,7 +580,16 @@ export function createApp(runtime) {
         response.json(publicInvoice(local, chain));
     }));
 
-    app.post('/api/v1/invoices/:invoiceId/reconcile', authenticated, asyncRoute(async (request, response) => {
+    // Deliberately public, matching /campaigns/:id/contributions below: the
+    // payer, not the merchant, is the one who has the transaction id and
+    // escrow coin to report after a direct /pay?opening= link payment (they
+    // have no merchant session to authenticate with). Safe without auth
+    // because reconcileInvoice() independently verifies everything itself
+    // (transaction lands on-chain, commitment and merchant_authorization
+    // match, escrow coin matches its on-chain commitment) — the exact same
+    // function the already-public checkout-session reconcile route below
+    // calls for an arbitrary invoice, just reached a different way.
+    app.post('/api/v1/invoices/:invoiceId/reconcile', asyncRoute(async (request, response) => {
         const invoice = await runtime.reconciliation.reconcileInvoice(
             request.params.invoiceId,
             request.body.transaction_id,
