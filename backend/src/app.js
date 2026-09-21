@@ -284,6 +284,15 @@ export function createApp(runtime) {
         response.json(await runtime.lumabot.chat(message, context));
     }));
 
+    // DocsChatbot.tsx (the floating assistant on every Docs/Developer page)
+    // has always called this — the route just never existed, so every
+    // message it sent 404'd.
+    app.post('/developer-assistant/chat', asyncRoute(async (request, response) => {
+        const message = requiredString(request.body.message, 'message', 4000);
+        const context = request.body.context && typeof request.body.context === 'object' ? request.body.context : {};
+        response.json(await runtime.developerAssistant.chat(message, context));
+    }));
+
     // address_hash-keyed (SHA-256 of the owning address, hashed client-side —
     // see frontend hashAddress()), not gated by the merchant session cookie:
     // a user's ability to compute the matching hash of their own address is
@@ -477,6 +486,27 @@ export function createApp(runtime) {
     app.post('/api/v1/cards', walletAuthenticated, asyncRoute(async (request, response) => {
         const addressHash = sha256(request.authSession.midnight_address);
         const card = cardMirrorInput(request.body, addressHash);
+        // Confirmed against a running deployment (its PostgREST OpenAPI
+        // schema, not just the checked-in migration files, which disagree
+        // with it): the live card_wallets table requires nearly every
+        // column NOT NULL with no default — main_owner, encrypted_card_number,
+        // the vault ciphertext fields, etc. — while cardMirrorInput's own
+        // validation, correctly, treats all of them as optional, since an
+        // update to an *existing* card legitimately omits most of them (the
+        // upsert then just leaves the stored values alone). Only main_address
+        // is checked explicitly here, as the field most likely to be the one
+        // missing from a minimal/naive caller; this isn't a live bug for the
+        // real UI flow, which only ever creates a card by mirroring an
+        // on-chain card-vault creation result that populates all of the
+        // above together — and that flow itself is already gated off
+        // (card-vault isn't deployed). Without DDL access there's no way to
+        // relax those NOT NULL constraints to match the intended schema, so
+        // this is the practical floor: fail clearly on the one field a
+        // caller might plausibly omit, rather than chase every column.
+        const existing = await runtime.repository.getCardWalletByOwnerHash(addressHash);
+        if (!existing && !card.mainAddress) {
+            throw new AppError('CARD_INPUT_INVALID', 'main_address is required to create a new card wallet.', 400);
+        }
         const saved = await runtime.repository.upsertCardWallet(card);
         response.status(201).json(privateCard(saved));
     }));
@@ -516,11 +546,41 @@ export function createApp(runtime) {
         if (amountMicro <= 0n) throw new AppError('CARD_SPEND_INVALID', 'amount_micro must be positive.', 400);
         const card = await runtime.repository.getCardWalletByOwnerHash(addressHash);
         if (!card) throw new AppError('CARD_NOT_FOUND', 'Card wallet not found.', 404);
-        response.json(privateCard(card));
+        // Enforcement is on-chain (the recordCardSpend circuit is what
+        // actually rejects a spend over the daily limit) — this validated
+        // the request and then discarded it entirely, so a self-reported
+        // spend never showed up anywhere for the dashboard to display.
+        // Mirrors it into the same epoch-day/amount shape the on-chain
+        // card vault itself uses (see midnight-gateway.js#getCardVault's
+        // spent_epoch_day/spent_amount), so this stays consistent with
+        // chain semantics rather than inventing a different reset scheme.
+        const epochDay = Math.floor(Date.now() / 86_400_000);
+        const limits = card.limits && typeof card.limits === 'object' && !Array.isArray(card.limits) ? { ...card.limits } : {};
+        const tokenLimits = limits[token] && typeof limits[token] === 'object' ? { ...limits[token] } : {};
+        const carriedMicro = Number(tokenLimits.spent_epoch_day) === epochDay ? BigInt(tokenLimits.spent_amount_micro ?? '0') : 0n;
+        const nowIso = new Date().toISOString();
+        limits[token] = {
+            ...tokenLimits,
+            spent_epoch_day: epochDay,
+            spent_amount_micro: (carriedMicro + amountMicro).toString(),
+            last_spend_at: nowIso
+        };
+        const saved = await runtime.repository.updateCardWallet(addressHash, {
+            limits,
+            card_limits_updated_at: nowIso
+        });
+        response.json(privateCard(saved));
     }));
 
     app.delete('/api/v1/cards/current', walletAuthenticated, asyncRoute(async (request, response) => {
         const addressHash = sha256(request.authSession.midnight_address);
+        // Every sibling card route (/limits, /spend) checks existence first
+        // and returns a clean 404 — this one went straight to the DB update,
+        // so deleting a card that doesn't exist hit Supabase's .single() with
+        // zero matching rows (PGRST116) and leaked a raw 500 DATABASE_ERROR
+        // instead. Confirmed live against a running server.
+        const existing = await runtime.repository.getCardWalletByOwnerHash(addressHash);
+        if (!existing) throw new AppError('CARD_NOT_FOUND', 'Card wallet not found.', 404);
         const closeTxId = request.body?.card_close_tx_id
             ? normalizeBytes32(request.body.card_close_tx_id, 'card_close_tx_id')
             : null;
@@ -580,7 +640,16 @@ export function createApp(runtime) {
         response.json(publicInvoice(local, chain));
     }));
 
-    app.post('/api/v1/invoices/:invoiceId/reconcile', authenticated, asyncRoute(async (request, response) => {
+    // Deliberately public, matching /campaigns/:id/contributions below: the
+    // payer, not the merchant, is the one who has the transaction id and
+    // escrow coin to report after a direct /pay?opening= link payment (they
+    // have no merchant session to authenticate with). Safe without auth
+    // because reconcileInvoice() independently verifies everything itself
+    // (transaction lands on-chain, commitment and merchant_authorization
+    // match, escrow coin matches its on-chain commitment) — the exact same
+    // function the already-public checkout-session reconcile route below
+    // calls for an arbitrary invoice, just reached a different way.
+    app.post('/api/v1/invoices/:invoiceId/reconcile', asyncRoute(async (request, response) => {
         const invoice = await runtime.reconciliation.reconcileInvoice(
             request.params.invoiceId,
             request.body.transaction_id,

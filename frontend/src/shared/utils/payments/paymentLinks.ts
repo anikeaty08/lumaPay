@@ -9,6 +9,18 @@ export interface ParsedPaymentLink {
     invoiceType: number;
     raw: string;
     href: string;
+    /**
+     * The full decoded payment opening from a modern `?opening=` link (its
+     * `kind` is 'invoice' or 'campaign') — the only source of the fields
+     * actually needed to build a payable transaction (merchantPrivateIdentity,
+     * invoiceNonce/invoiceRandomness, or the campaign equivalents). No
+     * backend endpoint re-exposes this for an arbitrary invoice/campaign ID
+     * by design (payment openings are private, transmitted only via the
+     * link itself), so any caller that needs to actually pay this link —
+     * not just display it — must read from here, not from a fetch. Null
+     * for the legacy `?merchant&salt&hash` link format.
+     */
+    opening: Record<string, unknown> | null;
 }
 
 // Decodes the base64url `opening` payload used by /pay?opening=... links
@@ -65,6 +77,7 @@ export const parsePaymentLink = (rawValue: string): ParsedPaymentLink | null => 
                 invoiceType: typeParam === 'donation' ? 2 : typeParam === 'multipay' ? 1 : 0,
                 raw: trimmed,
                 href: url.toString(),
+                opening: null,
             };
         }
 
@@ -79,6 +92,13 @@ export const parsePaymentLink = (rawValue: string): ParsedPaymentLink | null => 
                 ? opening.token
                 : (opening.acceptedTokens as string[] | undefined)?.[0] ?? 'NIGHT';
             if (typeof openingHash === 'string') {
+                // A campaign's minimumContribution of exactly 1 (micro-unit)
+                // is the sentinel useCreateInvoice.ts/useSharedPayment.ts
+                // both use for "open donation amount" — anything else with
+                // a fixed minimum is a Multi Pay campaign, not a donation.
+                const isDonation = opening.kind === 'campaign'
+                    && typeof opening.minimumContribution === 'string'
+                    && (() => { try { return BigInt(opening.minimumContribution as string) === 1n; } catch { return false; } })();
                 return {
                     merchant: typeof opening.merchant === 'string' ? opening.merchant : null,
                     amount: opening.kind === 'invoice' && typeof opening.amount === 'string' ? opening.amount : null,
@@ -87,9 +107,10 @@ export const parsePaymentLink = (rawValue: string): ParsedPaymentLink | null => 
                     title: typeof opening.title === 'string' ? opening.title : '',
                     memo: typeof opening.memo === 'string' ? opening.memo : '',
                     tokenType: tokenTypeFromCode(openingToken),
-                    invoiceType: opening.kind === 'campaign' ? 1 : 0,
+                    invoiceType: opening.kind === 'campaign' ? (isDonation ? 2 : 1) : 0,
                     raw: trimmed,
                     href: url.toString(),
+                    opening,
                 };
             }
         }

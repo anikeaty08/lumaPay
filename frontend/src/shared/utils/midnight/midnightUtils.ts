@@ -61,13 +61,20 @@ export async function getInvoiceHashFromMapping(nonce: string): Promise<string |
     return null;
 }
 
-export async function getInvoiceData(hash: string): Promise<{ status: number; tokenType: number; invoiceType: number } | null> {
+// The on-chain invoice commitment doesn't carry token/invoice-type
+// metadata (that only exists in the private payment opening, transmitted
+// solely via the link itself) — a bare chain lookup by hash genuinely
+// cannot know it. This used to return hardcoded tokenType/invoiceType
+// placeholders that a caller could mistake for real per-invoice data;
+// dropped rather than left as a footgun, since only `status` was ever
+// actually derived from the response.
+export async function getInvoiceData(hash: string): Promise<{ status: number } | null> {
     try {
         const response = await fetch(`${API_URL}/api/v1/chain/invoices/${encodeURIComponent(hash)}`);
         if (!response.ok) return null;
         const value = await response.json();
         const status = value.status === 'SETTLED' ? 1 : value.status === 'OPEN' ? 0 : 2;
-        return { status, tokenType: 0, invoiceType: 0 };
+        return { status };
     } catch { return null; }
 }
 

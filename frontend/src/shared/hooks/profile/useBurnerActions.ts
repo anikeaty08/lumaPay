@@ -140,6 +140,11 @@ export function useBurnerActions() {
             return;
         }
         setIsBackingUp(true);
+        // ConfirmModal is fully parent-controlled and never auto-closes, so
+        // without this the error banner below renders behind a still-open
+        // modal — the button just flashes "Processing..." with no visible
+        // result. Close it so the message is actually seen.
+        setShowBackupModal(false);
         setError('Privacy wallet backup is managed by the connected Midnight wallet. Legacy burner-key backup execution has been removed.');
         setIsBackingUp(false);
     };

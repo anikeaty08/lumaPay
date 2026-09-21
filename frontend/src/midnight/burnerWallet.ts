@@ -6,16 +6,15 @@
 // transitively but never wired into the browser.
 //
 // Scope, and why: mnemonic generation, HD/BIP39 seed derivation, address
-// derivation, and balance sync are implemented against verified type
-// signatures from the installed packages and are real, working code.
-// Submitting a burner-signed transaction (the actual "sweep"/"pay as
-// burner" broadcast) is NOT implemented here. The verified submission path
-// (@midnight-ntwrk/wallet-sdk-node-client's PolkadotNodeClient) is built on
-// the `effect` library's Effect/Scope/Layer runtime, a second framework
-// with zero working reference anywhere in this codebase — wiring that
-// correctly for code that moves real value deserves proper testing against
-// a live node, which this environment can't do. Guessing at that
-// integration would be worse than the honest "not yet" this throws.
+// derivation, balance sync, transfer building/proving, and broadcast
+// (submitBurnerTransfer, via wallet-sdk-node-client's PolkadotNodeClient)
+// are all implemented against verified type signatures from the installed
+// packages. What's NOT verified end-to-end is an actual submit-and-confirm
+// against a funded account — the connection layer and prove/bind/serialize
+// chain were each verified live (see submitBurnerTransfer below), but no
+// transaction has actually landed in a block from this code, since doing
+// so would broadcast real value and this environment has no funded burner
+// account to test with.
 import { HDWallet, Roles, generateMnemonicWords, joinMnemonicWords, mnemonicToWords, validateMnemonic } from '@midnight-ntwrk/wallet-sdk-hd';
 import { ShieldedWallet, type ShieldedWalletAPI } from '@midnight-ntwrk/wallet-sdk-shielded';
 import { NoOpTransactionHistoryStorage } from '@midnight-ntwrk/wallet-sdk-abstractions';
@@ -152,12 +151,8 @@ export async function getBurnerBalances(identity: BurnerIdentity): Promise<Burne
  * Building an unproven transfer is real (verified against wallet-sdk-shielded's
  * TokenTransfer/transferTransaction signature) — proving it is real too
  * (ProofProvider.proveTx, the same interface httpClientProofProvider already
- * implements elsewhere in this app). What's genuinely not implemented is the
- * final broadcast: the verified submission path for a headless (no browser
- * extension) signer is wallet-sdk-node-client's PolkadotNodeClient, built on
- * the `effect` library's Effect/Scope/Layer runtime — a second framework
- * with no working reference anywhere in this codebase. That's the one piece
- * this throws a clear error on instead of guessing at.
+ * implements elsewhere in this app). Broadcast is handled by
+ * submitBurnerTransfer below (wallet-sdk-node-client's PolkadotNodeClient).
  */
 export async function buildProvenBurnerTransfer(
     identity: BurnerIdentity,

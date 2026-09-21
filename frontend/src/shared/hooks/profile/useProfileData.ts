@@ -7,21 +7,30 @@ import type { MerchantReceipt, PayerReceipt } from '../../types/receipt';
 
 const TOKEN_TYPES: Record<string, number> = { NIGHT: 0, USDCX: 1, USAD: 2 };
 
+// Two unrelated localStorage schemes hold a payer's own receipts, one per
+// payment path: useCheckoutPayment.ts (checkout-session flow) writes
+// lumapay:checkout-recovery:<sessionId>; useSharedPayment.ts (the direct
+// /pay?opening= link flow — the default output of every invoice, so the
+// more common of the two) and BatchPay both write lumapay:receipt:<hash>:
+// <txId>. This used to only scan the first, so "Payer Receipts" silently
+// omitted most of a user's actual payment history.
 function localPayerReceipts(address: string | null | undefined): PayerReceipt[] {
     if (!address) return [];
     const receipts: PayerReceipt[] = [];
     for (let index = 0; index < localStorage.length; index += 1) {
         const key = localStorage.key(index);
-        if (!key?.startsWith('lumapay:checkout-recovery:')) continue;
+        const isCheckoutRecovery = key?.startsWith('lumapay:checkout-recovery:');
+        const isDirectReceipt = key?.startsWith('lumapay:receipt:');
+        if (!isCheckoutRecovery && !isDirectReceipt) continue;
         try {
-            const value = JSON.parse(localStorage.getItem(key) || 'null');
+            const value = JSON.parse(localStorage.getItem(key!) || 'null');
             if (!value || value.payerAddress !== address) continue;
             receipts.push({
                 owner: address,
-                merchant: '',
+                merchant: value.merchant || '',
                 receiptHash: value.receiptCommitment,
-                invoiceHash: value.invoiceId,
-                amount: Number(BigInt(value.amount)),
+                invoiceHash: isCheckoutRecovery ? value.invoiceId : value.requestId,
+                amount: Number(BigInt(value.amount ?? 0)),
                 tokenType: TOKEN_TYPES[value.token] ?? 0,
                 payerNote: value.payerNote || '',
                 timestamp: Date.parse(value.createdAt) || 0,

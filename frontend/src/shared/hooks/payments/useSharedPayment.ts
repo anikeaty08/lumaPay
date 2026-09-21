@@ -65,6 +65,32 @@ async function registerCampaignContribution(
     }
 }
 
+// Without this, the merchant's escrow claim material (the coin data needed
+// to actually withdraw a settled payment) never reaches the backend for a
+// payment made through a direct /pay?opening= link — a payer has no
+// merchant session to hit the merchant-authenticated invoice endpoints
+// with, and nothing else in this flow ever reported it. The route is
+// deliberately public and self-verifying against the chain (see its
+// backend comment), the same way campaign contributions already work above.
+export async function reportInvoicePayment(
+    invoiceId: string,
+    result: Awaited<ReturnType<typeof payInvoiceOnChain>>,
+): Promise<void> {
+    const response = await fetch(`${API_URL}/api/v1/invoices/${encodeURIComponent(invoiceId)}/reconcile`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+            transaction_id: result.transactionId,
+            escrow_coin: result.escrowCoin,
+        }),
+    });
+    if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error?.message ?? 'Payment could not be recorded for the merchant to claim.');
+    }
+}
+
 export const useSharedPayment = () => {
     const [searchParams] = useSearchParams();
     const { api, address: publicKey } = useWallet();
@@ -142,14 +168,22 @@ export const useSharedPayment = () => {
         setError(null);
         try {
             const token = tokenFromType(selectedToken ?? invoice.tokenType);
+            const paidAmountAtomic = opening.kind === 'invoice'
+                ? opening.amount
+                : String(BigInt(Math.round((invoice.amount > 0 ? invoice.amount : Number(donationAmount)) * 1_000_000)));
             appendStatus('Generating the private payment proof…');
             const result = opening.kind === 'invoice'
-                ? await payInvoiceOnChain(api, opening)
+                ? await (async () => {
+                    const receipt = await payInvoiceOnChain(api, opening);
+                    appendStatus('Recording the payment for merchant claim...');
+                    await reportInvoicePayment(opening.invoiceId, receipt);
+                    return receipt;
+                })()
                 : await (async () => {
                     const contribution = await contributeOnChain(
                         api,
                         opening,
-                        BigInt(Math.round((invoice.amount > 0 ? invoice.amount : Number(donationAmount)) * 1_000_000)),
+                        BigInt(paidAmountAtomic),
                         token
                     );
                     appendStatus('Registering the contribution for merchant claim...');
@@ -159,11 +193,19 @@ export const useSharedPayment = () => {
             setTxId(result.transactionId);
             setPaymentSecret('paymentSecret' in result ? result.paymentSecret : result.contributionSecret);
             setReceiptHash(result.receiptCommitment);
+            // amount/token/merchant aren't on `result` itself (the on-chain
+            // receipt only proves the payment happened, not what it was
+            // for) — added here from `invoice`/`opening`, which are the
+            // only place this data exists, so useProfileData.ts's payer
+            // receipt list has something to actually display.
             localStorage.setItem(`lumapay:receipt:${invoice.hash}:${result.transactionId}`, JSON.stringify({
                 ...result,
                 requestId: invoice.hash,
                 kind: opening.kind,
                 payerAddress: publicKey,
+                merchant: invoice.merchant,
+                amount: paidAmountAtomic,
+                token,
                 payerNote: notes.payerNote?.trim() || null,
                 merchantNote: notes.merchantNote?.trim() || null,
                 createdAt: new Date().toISOString()
