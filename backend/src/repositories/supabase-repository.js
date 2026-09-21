@@ -1,8 +1,25 @@
 import { AppError } from '../errors/app-error.js';
 import { decrypt, encrypt, sha256 } from '../security/crypto.js';
 
+// PGRST205 is PostgREST's specific code for "this table isn't in the
+// schema cache" — i.e. a pending migration, not a real failure. Tested
+// live against a database missing 006/007: every route touching
+// user_profiles/support_feedback returned a raw 500 DATABASE_ERROR
+// leaking this code, which reads as "something crashed" rather than the
+// true "this feature isn't set up on this deployment yet." Every other
+// error code is left as a genuine 500 — this isn't a blanket downgrade.
+const SCHEMA_CACHE_MISS_CODE = 'PGRST205';
+
 function unwrap(result, operation) {
     if (result.error) {
+        if (result.error.code === SCHEMA_CACHE_MISS_CODE) {
+            throw new AppError(
+                'DATABASE_UNAVAILABLE',
+                'This feature requires a database migration that has not been applied to this deployment yet.',
+                503,
+                { operation }
+            );
+        }
         throw new AppError('DATABASE_ERROR', `Database operation failed: ${operation}.`, 500, {
             operation,
             databaseCode: result.error.code

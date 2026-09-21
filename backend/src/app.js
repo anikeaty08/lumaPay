@@ -486,6 +486,27 @@ export function createApp(runtime) {
     app.post('/api/v1/cards', walletAuthenticated, asyncRoute(async (request, response) => {
         const addressHash = sha256(request.authSession.midnight_address);
         const card = cardMirrorInput(request.body, addressHash);
+        // Confirmed against a running deployment (its PostgREST OpenAPI
+        // schema, not just the checked-in migration files, which disagree
+        // with it): the live card_wallets table requires nearly every
+        // column NOT NULL with no default — main_owner, encrypted_card_number,
+        // the vault ciphertext fields, etc. — while cardMirrorInput's own
+        // validation, correctly, treats all of them as optional, since an
+        // update to an *existing* card legitimately omits most of them (the
+        // upsert then just leaves the stored values alone). Only main_address
+        // is checked explicitly here, as the field most likely to be the one
+        // missing from a minimal/naive caller; this isn't a live bug for the
+        // real UI flow, which only ever creates a card by mirroring an
+        // on-chain card-vault creation result that populates all of the
+        // above together — and that flow itself is already gated off
+        // (card-vault isn't deployed). Without DDL access there's no way to
+        // relax those NOT NULL constraints to match the intended schema, so
+        // this is the practical floor: fail clearly on the one field a
+        // caller might plausibly omit, rather than chase every column.
+        const existing = await runtime.repository.getCardWalletByOwnerHash(addressHash);
+        if (!existing && !card.mainAddress) {
+            throw new AppError('CARD_INPUT_INVALID', 'main_address is required to create a new card wallet.', 400);
+        }
         const saved = await runtime.repository.upsertCardWallet(card);
         response.status(201).json(privateCard(saved));
     }));
@@ -553,6 +574,13 @@ export function createApp(runtime) {
 
     app.delete('/api/v1/cards/current', walletAuthenticated, asyncRoute(async (request, response) => {
         const addressHash = sha256(request.authSession.midnight_address);
+        // Every sibling card route (/limits, /spend) checks existence first
+        // and returns a clean 404 — this one went straight to the DB update,
+        // so deleting a card that doesn't exist hit Supabase's .single() with
+        // zero matching rows (PGRST116) and leaked a raw 500 DATABASE_ERROR
+        // instead. Confirmed live against a running server.
+        const existing = await runtime.repository.getCardWalletByOwnerHash(addressHash);
+        if (!existing) throw new AppError('CARD_NOT_FOUND', 'Card wallet not found.', 404);
         const closeTxId = request.body?.card_close_tx_id
             ? normalizeBytes32(request.body.card_close_tx_id, 'card_close_tx_id')
             : null;
