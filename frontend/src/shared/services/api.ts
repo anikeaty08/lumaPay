@@ -436,24 +436,6 @@ export const recordCardSpend = async (
     return response.json();
 };
 
-export const chatWithDashboardAssistant = async (
-    message: string,
-    context: Record<string, unknown>
-): Promise<string> => {
-    const response = await fetch(`${API_URL}/dashboard-assistant/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, context })
-    });
-
-    const payload = await response.json();
-    if (!response.ok) {
-        throw new Error(payload?.error?.message || payload?.error || 'Failed to chat with dashboard assistant');
-    }
-
-    return payload.reply;
-};
-
 
 export const chatWithLumaBot = async (
     message: string,

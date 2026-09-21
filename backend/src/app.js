@@ -284,6 +284,15 @@ export function createApp(runtime) {
         response.json(await runtime.lumabot.chat(message, context));
     }));
 
+    // DocsChatbot.tsx (the floating assistant on every Docs/Developer page)
+    // has always called this — the route just never existed, so every
+    // message it sent 404'd.
+    app.post('/developer-assistant/chat', asyncRoute(async (request, response) => {
+        const message = requiredString(request.body.message, 'message', 4000);
+        const context = request.body.context && typeof request.body.context === 'object' ? request.body.context : {};
+        response.json(await runtime.developerAssistant.chat(message, context));
+    }));
+
     // address_hash-keyed (SHA-256 of the owning address, hashed client-side —
     // see frontend hashAddress()), not gated by the merchant session cookie:
     // a user's ability to compute the matching hash of their own address is
