@@ -516,7 +516,30 @@ export function createApp(runtime) {
         if (amountMicro <= 0n) throw new AppError('CARD_SPEND_INVALID', 'amount_micro must be positive.', 400);
         const card = await runtime.repository.getCardWalletByOwnerHash(addressHash);
         if (!card) throw new AppError('CARD_NOT_FOUND', 'Card wallet not found.', 404);
-        response.json(privateCard(card));
+        // Enforcement is on-chain (the recordCardSpend circuit is what
+        // actually rejects a spend over the daily limit) — this validated
+        // the request and then discarded it entirely, so a self-reported
+        // spend never showed up anywhere for the dashboard to display.
+        // Mirrors it into the same epoch-day/amount shape the on-chain
+        // card vault itself uses (see midnight-gateway.js#getCardVault's
+        // spent_epoch_day/spent_amount), so this stays consistent with
+        // chain semantics rather than inventing a different reset scheme.
+        const epochDay = Math.floor(Date.now() / 86_400_000);
+        const limits = card.limits && typeof card.limits === 'object' && !Array.isArray(card.limits) ? { ...card.limits } : {};
+        const tokenLimits = limits[token] && typeof limits[token] === 'object' ? { ...limits[token] } : {};
+        const carriedMicro = Number(tokenLimits.spent_epoch_day) === epochDay ? BigInt(tokenLimits.spent_amount_micro ?? '0') : 0n;
+        const nowIso = new Date().toISOString();
+        limits[token] = {
+            ...tokenLimits,
+            spent_epoch_day: epochDay,
+            spent_amount_micro: (carriedMicro + amountMicro).toString(),
+            last_spend_at: nowIso
+        };
+        const saved = await runtime.repository.updateCardWallet(addressHash, {
+            limits,
+            card_limits_updated_at: nowIso
+        });
+        response.json(privateCard(saved));
     }));
 
     app.delete('/api/v1/cards/current', walletAuthenticated, asyncRoute(async (request, response) => {
